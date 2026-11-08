@@ -514,14 +514,14 @@ public class AddressServiceTests
         FakeLogRecord record = ShouldHaveLoggedSingle(
             LogLevel.Debug,
             4,
-            "Listed 2 of 25 addresses on page 2 of size 2 sorted by city desc for city city:Köln and postal code "
-            + "postal:51147");
+            "Listed 2 of 25 addresses on page 2 of size 2 sorted by City Descending for city city:Köln and "
+            + "postal code postal:51147");
         record.GetStructuredStateValue("Count").Should().Be("2");
         record.GetStructuredStateValue("TotalCount").Should().Be("25");
         record.GetStructuredStateValue("Page").Should().Be("2");
         record.GetStructuredStateValue("PageSize").Should().Be("2");
-        record.GetStructuredStateValue("SortBy").Should().Be("city");
-        record.GetStructuredStateValue("SortDirection").Should().Be("desc");
+        record.GetStructuredStateValue("SortBy").Should().Be("City");
+        record.GetStructuredStateValue("SortDirection").Should().Be("Descending");
         record.GetStructuredStateValue("NormalizedCity").Should().Be("city:Köln");
         record.GetStructuredStateValue("NormalizedPostalCode").Should().Be("postal:51147");
     }

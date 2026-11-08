@@ -381,7 +381,7 @@ public class AddressesControllerTests
     public async Task GetListAsync_BindingErrorAndInvalidQuery_ReturnsValidationProblemWithAllErrors()
     {
         // Arrange
-        _controller.ModelState.AddModelError("page", "The value 'abc' is not valid for page.");
+        _controller.ModelState.AddModelError("page", "The value 'abc' is not valid.");
         ReturnListQueryValidationErrors(new ValidationFailure("SortBy", "'Sort By' must be one of: lastName."));
 
         // Act
@@ -391,7 +391,7 @@ public class AddressesControllerTests
         // Assert
         AssertValidationProblem(Convert(result), new Dictionary<string, string[]>
         {
-            ["page"] = ["The value 'abc' is not valid for page."],
+            ["page"] = ["The value 'abc' is not valid."],
             ["sortBy"] = ["'Sort By' must be one of: lastName."],
         });
     }
@@ -400,7 +400,7 @@ public class AddressesControllerTests
     public async Task GetListAsync_BindingErrorOnly_ReturnsValidationProblemWithoutListingAddresses()
     {
         // Arrange
-        _controller.ModelState.AddModelError("pageSize", "The value '1.5' is not valid for pageSize.");
+        _controller.ModelState.AddModelError("pageSize", "The value '1.5' is not valid.");
 
         // Act
         ActionResult<AddressListResponse> result =
@@ -409,7 +409,7 @@ public class AddressesControllerTests
         // Assert
         AssertValidationProblem(Convert(result), new Dictionary<string, string[]>
         {
-            ["pageSize"] = ["The value '1.5' is not valid for pageSize."],
+            ["pageSize"] = ["The value '1.5' is not valid."],
         });
         await _addressService.DidNotReceiveWithAnyArgs().GetListAsync(default!, default);
     }

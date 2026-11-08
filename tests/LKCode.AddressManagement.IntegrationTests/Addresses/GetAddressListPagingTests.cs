@@ -357,7 +357,7 @@ public class GetAddressListPagingTests
         ValidationProblemDetails problem = await ReadValidationProblemAsync(response);
         problem.Errors.Should().BeEquivalentTo(new Dictionary<string, string[]>
         {
-            ["page"] = ["The value 'abc' is not valid for page."],
+            ["page"] = ["The value 'abc' is not valid."],
         });
     }
 

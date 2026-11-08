@@ -72,8 +72,12 @@ public class DeleteAddressTests
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
-        IReadOnlyList<AddressResponse>? listed = await _client.GetFromJsonAsync<IReadOnlyList<AddressResponse>>(Path);
-        listed.Should().NotContain(address => address.Id == created.Id);
+
+        // The newest addresses come first, so the address would be on this page if it were still listed.
+        AddressListResponse? listed = await _client.GetFromJsonAsync<AddressListResponse>(
+            $"{Path}?sortBy=createdAt&sortDirection=desc&pageSize=1");
+        listed.Should().NotBeNull();
+        listed.Items.Should().NotContain(address => address.Id == created.Id);
     }
 
     [Test]

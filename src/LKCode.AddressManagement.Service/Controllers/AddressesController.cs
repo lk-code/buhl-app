@@ -164,15 +164,29 @@ public sealed class AddressesController(
     [ProducesResponseType<ValidationProblemDetails>(
         StatusCodes.Status400BadRequest,
         MediaTypeNames.Application.ProblemJson)]
-    public Task<ActionResult<AddressListResponse>> GetListAsync(
+    public async Task<ActionResult<AddressListResponse>> GetListAsync(
         [FromQuery] string? city,
         [FromQuery] string? postalCode,
         [FromQuery] int? page,
         [FromQuery] int? pageSize,
         [FromQuery] string? sortBy,
         [FromQuery] string? sortDirection,
-        CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+        CancellationToken cancellationToken)
+    {
+        // A value that is no integer is already in the model state; it is reported together with the other errors.
+        AddressListQuery query =
+            new AddressListQuery(city, postalCode, page, pageSize, sortBy, sortDirection).Sanitize();
+        ValidationResult validationResult = await _addressListQueryValidator.ValidateAsync(query, cancellationToken);
+        ModelState.AddValidationErrors(validationResult, _jsonNamingPolicy);
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        AddressListResponse addresses = await _addressService.GetListAsync(query, cancellationToken);
+
+        return Ok(addresses);
+    }
 
     // In the actions with a request body (create and update), the parameter "request" is documented last: the
     // OpenAPI XML comment generator of .NET 10 writes the description of every parameter that is no operation
