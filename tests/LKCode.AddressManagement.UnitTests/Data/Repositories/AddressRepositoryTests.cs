@@ -581,12 +581,12 @@ public class AddressRepositoryTests
         // Act
         IReadOnlyList<Address> result = await repository.ListAsync(
             null,
-            _textNormalizer.NormalizePostalCode("1"),
+            _textNormalizer.NormalizePostalCode("4"),
             CancellationToken.None);
 
         // Assert
         result.Select(address => address.Id)
-            .Should().BeEquivalentTo([seeded.Koeln.Id, seeded.Solingen.Id, seeded.London.Id]);
+            .Should().BeEquivalentTo([seeded.Koeln.Id, seeded.Solingen.Id, seeded.BadHomburg.Id]);
     }
 
     [Test]
