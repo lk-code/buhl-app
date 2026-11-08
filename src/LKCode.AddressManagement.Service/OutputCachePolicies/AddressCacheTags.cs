@@ -19,5 +19,5 @@ public static class AddressCacheTags
     /// <c>address-</c> followed by the id in lowercase with hyphens, e.g.
     /// <c>address-0198f2a4-6e0b-7c3d-9a1e-5b4c3d2e1f00</c>, whatever format the request used.
     /// </returns>
-    public static string ForAddress(Guid id) => throw new NotImplementedException();
+    public static string ForAddress(Guid id) => $"address-{id:D}";
 }

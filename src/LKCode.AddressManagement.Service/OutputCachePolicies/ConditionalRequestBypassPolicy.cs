@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.Primitives;
 
 namespace LKCode.AddressManagement.Service.OutputCachePolicies;
 
@@ -19,8 +20,19 @@ public sealed class ConditionalRequestBypassPolicy : IOutputCachePolicy
     /// <param name="cancellation">The token to cancel the operation.</param>
     /// <returns>A completed task.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is <see langword="null"/>.</exception>
-    public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation) =>
-        throw new NotImplementedException();
+    public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        // The same check as in the output cache middleware, which evaluates these headers only if they are not empty.
+        IHeaderDictionary headers = context.HttpContext.Request.Headers;
+        if (!StringValues.IsNullOrEmpty(headers.IfNoneMatch) || !StringValues.IsNullOrEmpty(headers.IfModifiedSince))
+        {
+            context.AllowCacheLookup = false;
+        }
+
+        return ValueTask.CompletedTask;
+    }
 
     /// <summary>
     /// Does nothing; the policy only decides about the lookup.
@@ -29,8 +41,12 @@ public sealed class ConditionalRequestBypassPolicy : IOutputCachePolicy
     /// <param name="cancellation">The token to cancel the operation.</param>
     /// <returns>A completed task.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is <see langword="null"/>.</exception>
-    public ValueTask ServeFromCacheAsync(OutputCacheContext context, CancellationToken cancellation) =>
-        throw new NotImplementedException();
+    public ValueTask ServeFromCacheAsync(OutputCacheContext context, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return ValueTask.CompletedTask;
+    }
 
     /// <summary>
     /// Does nothing; the policy only decides about the lookup.
@@ -39,6 +55,10 @@ public sealed class ConditionalRequestBypassPolicy : IOutputCachePolicy
     /// <param name="cancellation">The token to cancel the operation.</param>
     /// <returns>A completed task.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is <see langword="null"/>.</exception>
-    public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation) =>
-        throw new NotImplementedException();
+    public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+
+        return ValueTask.CompletedTask;
+    }
 }
