@@ -1,6 +1,7 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
 using Microsoft.Extensions.Logging;
 
@@ -36,9 +37,18 @@ public sealed partial class AddressService(
         logger ?? throw new ArgumentNullException(nameof(logger));
 
     /// <inheritdoc />
-    public Task<AddressResponse?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<AddressResponse?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            LogAddressNotFound(_logger, id);
+            return null;
+        }
+
+        LogAddressLoaded(_logger, id);
+
+        return address.ToResponse();
     }
 
     /// <inheritdoc />
@@ -78,4 +88,10 @@ public sealed partial class AddressService(
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Created address {AddressId}")]
     private static partial void LogAddressCreated(ILogger logger, Guid addressId);
+
+    [LoggerMessage(EventId = 2, Level = LogLevel.Debug, Message = "Loaded address {AddressId}")]
+    private static partial void LogAddressLoaded(ILogger logger, Guid addressId);
+
+    [LoggerMessage(EventId = 3, Level = LogLevel.Debug, Message = "Address {AddressId} was not found")]
+    private static partial void LogAddressNotFound(ILogger logger, Guid addressId);
 }
