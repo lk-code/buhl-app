@@ -10,7 +10,7 @@ namespace LKCode.AddressManagement.Data.Repositories;
 /// <exception cref="ArgumentNullException"><paramref name="dbContext"/> is <see langword="null"/>.</exception>
 public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepository
 {
-    private readonly AddressDbContext _dbContext = dbContext;
+    private readonly AddressDbContext _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
 
     /// <inheritdoc />
     public Task<Address?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
@@ -28,9 +28,12 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     }
 
     /// <inheritdoc />
-    public Task AddAsync(Address address, CancellationToken cancellationToken)
+    public async Task AddAsync(Address address, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(address);
+
+        _dbContext.Addresses.Add(address);
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     /// <inheritdoc />
