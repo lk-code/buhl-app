@@ -109,6 +109,7 @@ public sealed class AddressesController(
     /// <response code="404">There is no address with the id.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet("{id:guid}", Name = GetByIdRouteName)]
+    [OutputCache(PolicyName = AddressOutputCachePolicyNames.ById)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     public async Task<ActionResult<AddressResponse>> GetByIdAsync(Guid id, CancellationToken cancellationToken)
@@ -169,6 +170,7 @@ public sealed class AddressesController(
     /// <response code="400">A paging or sorting parameter is invalid.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet(Name = ListRouteName)]
+    [OutputCache(PolicyName = AddressOutputCachePolicyNames.List)]
     [ProducesResponseType<AddressListResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
         StatusCodes.Status400BadRequest,

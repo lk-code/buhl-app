@@ -99,6 +99,11 @@ app.UseExceptionHandler();
 // Writes Problem Details for error responses without a body, e.g. 404 for an unknown route.
 app.UseStatusCodePages();
 
+// Behind everything that decides whether a request may be answered at all, e.g. authentication and authorization,
+// so that the cache never answers a request that would be rejected. Only the endpoints with an output cache policy
+// are cached; the policies and the expiration are registered by AddAddressCaching().
+app.UseOutputCache();
+
 // The OpenAPI document is the contract of the API and is therefore available in every environment.
 app.MapOpenApi();
 
