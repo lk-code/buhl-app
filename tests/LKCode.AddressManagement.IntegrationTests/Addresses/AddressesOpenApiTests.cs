@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using AwesomeAssertions;
+using LKCode.AddressManagement.Domain.Addresses;
 
 namespace LKCode.AddressManagement.IntegrationTests.Addresses;
 
@@ -181,6 +182,116 @@ public class AddressesOpenApiTests
         JsonElement messages = errors.GetProperty("additionalProperties");
         messages.GetProperty("type").GetString().Should().Be("array");
         messages.GetProperty("items").GetProperty("type").GetString().Should().Be("string");
+    }
+
+    [Test]
+    public void CreateAddressRequestSchema_Required_AreAllValuesExceptEmail()
+    {
+        // Act
+        JsonElement schema = GetSchema("CreateAddressRequest");
+
+        // Assert
+        schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).Should().BeEquivalentTo(
+            "firstName",
+            "lastName",
+            "street",
+            "houseNumber",
+            "postalCode",
+            "city",
+            "country");
+    }
+
+    [Test]
+    public void AddressResponseSchema_Required_AreAllValues()
+    {
+        // Act
+        JsonElement schema = GetSchema("AddressResponse");
+
+        // Assert
+        schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).Should().BeEquivalentTo(
+            GetNames(schema.GetProperty("properties")));
+        GetNames(schema.GetProperty("properties")).Should().HaveCount(11);
+    }
+
+    [TestCaseSource(nameof(RequiredValuesOfSchemas))]
+    public void AddressSchema_RequiredValue_IsStringWithLengths(
+        string schemaName,
+        string name,
+        int minLength,
+        int maxLength)
+    {
+        // Act
+        JsonElement value = GetSchema(schemaName).GetProperty("properties").GetProperty(name);
+
+        // Assert
+        GetTypes(value).Should().Equal("string");
+        value.GetProperty("minLength").GetInt32().Should().Be(minLength);
+        value.GetProperty("maxLength").GetInt32().Should().Be(maxLength);
+    }
+
+    [TestCase("CreateAddressRequest")]
+    [TestCase("AddressResponse")]
+    public void AddressSchema_Country_HasPatternOfTwoUppercaseLetters(string schemaName)
+    {
+        // Act
+        JsonElement country = GetSchema(schemaName).GetProperty("properties").GetProperty("country");
+
+        // Assert
+        country.GetProperty("pattern").GetString().Should().Be("^[A-Z]{2}$");
+    }
+
+    [TestCase("CreateAddressRequest")]
+    [TestCase("AddressResponse")]
+    public void AddressSchema_Email_IsNullableEmailWithMaxLength(string schemaName)
+    {
+        // Act
+        JsonElement email = GetSchema(schemaName).GetProperty("properties").GetProperty("email");
+
+        // Assert
+        GetTypes(email).Should().BeEquivalentTo("string", "null");
+        email.GetProperty("format").GetString().Should().Be("email");
+        email.GetProperty("maxLength").GetInt32().Should().Be(AddressConstraints.EmailMaxLength);
+    }
+
+    [TestCase("id", "uuid")]
+    [TestCase("createdAt", "date-time")]
+    [TestCase("updatedAt", "date-time")]
+    public void AddressResponseSchema_Value_IsStringWithFormat(string name, string format)
+    {
+        // Act
+        JsonElement value = GetSchema("AddressResponse").GetProperty("properties").GetProperty(name);
+
+        // Assert
+        GetTypes(value).Should().Equal("string");
+        value.GetProperty("format").GetString().Should().Be(format);
+    }
+
+    private static IEnumerable<TestCaseData> RequiredValuesOfSchemas()
+    {
+        (string Name, int MinLength, int MaxLength)[] values =
+        [
+            ("firstName", 1, AddressConstraints.FirstNameMaxLength),
+            ("lastName", 1, AddressConstraints.LastNameMaxLength),
+            ("street", 1, AddressConstraints.StreetMaxLength),
+            ("houseNumber", 1, AddressConstraints.HouseNumberMaxLength),
+            ("postalCode", 1, AddressConstraints.PostalCodeMaxLength),
+            ("city", 1, AddressConstraints.CityMaxLength),
+            ("country", 2, AddressConstraints.CountryMaxLength),
+        ];
+        string[] schemaNames = ["CreateAddressRequest", "AddressResponse"];
+
+        return schemaNames.SelectMany(schemaName => values.Select(value =>
+            new TestCaseData(schemaName, value.Name, value.MinLength, value.MaxLength)
+                .SetArgDisplayNames(schemaName, value.Name)));
+    }
+
+    private static IEnumerable<string?> GetTypes(JsonElement schema)
+    {
+        JsonElement type = schema.GetProperty("type");
+
+        return type.ValueKind == JsonValueKind.Array
+            ? type.EnumerateArray().Select(item => item.GetString())
+            : [type.GetString()];
     }
 
     private static IEnumerable<string> GetNames(JsonElement element) =>
