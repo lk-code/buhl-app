@@ -1,0 +1,10 @@
+# Normalize all text files to LF, matching end_of_line = lf in .editorconfig.
+* text=auto eol=lf
+
+# Binary files are never normalized.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
