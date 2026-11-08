@@ -4,8 +4,8 @@ using LKCode.AddressManagement.Domain.Contracts;
 namespace LKCode.AddressManagement.Domain.Addresses;
 
 /// <summary>
-/// A postal address of a person. An address can only be created and changed through <see cref="Create"/>,
-/// which keeps it valid and maintains the normalized fields and timestamps.
+/// A postal address of a person. An address can only be created through <see cref="Create"/> and changed through
+/// <see cref="Update"/>, which keep it valid and maintain the normalized fields and timestamps.
 /// </summary>
 public sealed class Address
 {
@@ -156,6 +156,19 @@ public sealed class Address
     /// <param name="email">The optional email address.</param>
     /// <param name="textNormalizer">The normalizer for the city and the postal code.</param>
     /// <param name="timeProvider">The provider of the current time.</param>
+    /// <remarks>
+    /// The values are cleaned like in <see cref="Create"/>. The normalized fields and <see cref="UpdatedAt"/> are
+    /// updated, <see cref="Id"/> and <see cref="CreatedAt"/> stay unchanged. If a value is invalid, the address stays
+    /// unchanged.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">
+    /// A required value, <paramref name="textNormalizer"/> or <paramref name="timeProvider"/> is
+    /// <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// A required value is empty or consists only of whitespace, or a value exceeds its maximum length defined in
+    /// <see cref="AddressConstraints"/>.
+    /// </exception>
     public void Update(
         string firstName,
         string lastName,
@@ -166,7 +179,23 @@ public sealed class Address
         string country,
         string? email,
         ITextNormalizer textNormalizer,
-        TimeProvider timeProvider) => throw new NotImplementedException();
+        TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(textNormalizer);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        SetValues(
+            firstName,
+            lastName,
+            street,
+            houseNumber,
+            postalCode,
+            city,
+            country,
+            email,
+            textNormalizer,
+            timeProvider.GetUtcNow());
+    }
 
     /// <summary>
     /// Checks and cleans all values first and assigns them afterwards, so that the address stays unchanged if a value
