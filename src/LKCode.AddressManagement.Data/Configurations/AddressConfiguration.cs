@@ -11,7 +11,8 @@ namespace LKCode.AddressManagement.Data.Configurations;
 /// The maximum lengths come from <see cref="AddressConstraints"/>. <see cref="Address.NormalizedPostalCode"/> is never
 /// longer than <see cref="Address.PostalCode"/>. <see cref="Address.NormalizedCity"/> has no maximum length because
 /// the normalization can lengthen a value (e.g. <c>ß</c> becomes <c>ss</c>). <see cref="Address.Version"/> is the
-/// concurrency token that detects concurrent changes.
+/// concurrency token that detects concurrent changes. A global query filter excludes deleted addresses
+/// (<see cref="Address.IsDeleted"/>) from all queries.
 /// </remarks>
 public sealed class AddressConfiguration : IEntityTypeConfiguration<Address>
 {
@@ -47,6 +48,12 @@ public sealed class AddressConfiguration : IEntityTypeConfiguration<Address>
         // The domain increases the version with every change; saving a change succeeds only if the stored version
         // still equals the original value of the tracked entry.
         builder.Property(address => address.Version).IsRequired().IsConcurrencyToken().ValueGeneratedNever();
+
+        builder.Property(address => address.IsDeleted).IsRequired();
+        builder.Property(address => address.DeletedAt).IsRequired(false);
+
+        // Deleted addresses are kept, but every query behaves as if they never existed.
+        builder.HasQueryFilter(address => !address.IsDeleted);
 
         builder.HasIndex(address => address.NormalizedCity);
         builder.HasIndex(address => address.NormalizedPostalCode);

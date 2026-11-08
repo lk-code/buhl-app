@@ -13,7 +13,9 @@ public interface IAddressRepository
     /// </summary>
     /// <param name="id">The id of the address.</param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
-    /// <returns>The address, or <see langword="null"/> if there is no address with the id.</returns>
+    /// <returns>
+    /// The address, or <see langword="null"/> if there is no address with the id or it is deleted.
+    /// </returns>
     /// <remarks>The address is tracked, so changes to it can be saved with <see cref="UpdateAsync"/>.</remarks>
     Task<Address?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
@@ -33,7 +35,7 @@ public interface IAddressRepository
     /// <remarks>
     /// The filter values are compared with <see cref="Address.NormalizedCity"/> and
     /// <see cref="Address.NormalizedPostalCode"/> and must already be normalized in the same way. Both filters must
-    /// match.
+    /// match. Deleted addresses are never returned.
     /// </remarks>
     Task<IReadOnlyList<Address>> ListAsync(
         string? normalizedCity,
@@ -60,11 +62,14 @@ public interface IAddressRepository
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <returns>
     /// <see cref="ChangeStatus.Success"/> if the changes were saved; <see cref="ChangeStatus.NotFound"/> if the
-    /// address is not stored (anymore); <see cref="ChangeStatus.VersionMismatch"/> if its stored version differs.
+    /// address is not stored or was deleted in the meantime; <see cref="ChangeStatus.VersionMismatch"/> if its stored
+    /// version differs.
     /// </returns>
     /// <remarks>
-    /// The version is checked when saving, so that a change in the meantime is detected, too. If nothing was saved,
-    /// the address is no longer tracked.
+    /// A deletion is a change, too: an address marked with <see cref="Address.Delete"/> is saved with this method and
+    /// is kept, but no longer returned by <see cref="GetByIdAsync"/> and <see cref="ListAsync"/>. The version is
+    /// checked when saving, so that a change in the meantime is detected, too. If nothing was saved, the address is no
+    /// longer tracked.
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="address"/> is <see langword="null"/>.</exception>
     Task<ChangeStatus> UpdateAsync(Address address, long? expectedVersion, CancellationToken cancellationToken);
