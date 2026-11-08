@@ -104,6 +104,12 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - E-Mail: Prüfung über `MailAddress.TryCreate`, das keine Exception wirft. Die erkannte Adresse muss exakt der Eingabe entsprechen; so werden Anzeigenamen, Kommentare und Adresslisten abgelehnt. RFC-gültige Sonderformen wie `"erika mustermann"@example.com` oder Umlaute in der Domain sind erlaubt.
 - Die Validatoren sind zustandslos und werden über `AddCoreAddresses()` als Singleton registriert.
 
+**Geschäftslogik**
+- `AddressService` (`IAddressService`) liegt zwischen Controller und Repository und kennt weder HTTP noch EF Core. Er erwartet bereinigte und validierte Requests; eine ungültige Eingabe ist ein Programmierfehler und führt zur `ArgumentException` der Entity.
+- „Nicht gefunden“ ist ein erwartbarer Fall und wird über den Rückgabewert gemeldet: `GetByIdAsync` und `UpdateAsync` liefern `null`, `DeleteAsync` liefert `false`.
+- Die Listenfilter werden vor der Suche mit `ITextNormalizer` normalisiert. Fehlende oder leere Filter werden ignoriert.
+- Der Service wird über `AddCoreAddresses()` als Scoped registriert, passend zum Repository. Repository, `ITextNormalizer`, `TimeProvider` und Logging registrieren `AddData()`, `AddDomain()` und der Host.
+
 **Fehlerbehandlung**
 - Fehler werden als Problem Details nach RFC 7807 (bzw. Nachfolger RFC 9457) zurückgegeben.
 - Erwartbare Fälle (nicht gefunden, ungültige Eingabe) laufen über Rückgabewerte, Exceptions nur bei unerwarteten Fehlern.
@@ -124,6 +130,8 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Serverseitiges Output Caching mit Invalidierung per Tag bei jeder Änderung. Der Cache liegt im Speicher der jeweiligen Instanz; bei mehreren Instanzen wäre ein verteilter Store (z. B. Redis) nötig.
 
 **Logging**
+- Strukturiertes Logging über `ILogger` mit Message-Templates. Die Log-Methoden erzeugt der Source-Generator `[LoggerMessage]`: Die Templates werden beim Build geprüft, und die Argumente werden nur verarbeitet, wenn das Level aktiv ist.
+- Geloggt werden nur Ids, Anzahlen und normalisierte Filter, keine personenbezogenen Daten wie Namen oder E-Mail-Adressen. Änderungen (Anlegen, Ändern, Löschen) laufen auf `Information`, Lesezugriffe und „nicht gefunden“ auf `Debug`.
 - Serilog schreibt aktuell nur in die Konsole. Langfristig ist die Ausgabe in Dateien oder zentrale Dienste (z. B. Seq, Elasticsearch, Application Insights) sinnvoll; dafür ist nur Konfiguration nötig.
 
 ## Authentifizierung
