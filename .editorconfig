@@ -1,0 +1,206 @@
+# top-most EditorConfig file
+root = true
+
+# editorconfig.org
+#
+# Severities written as "option = value:severity" are only honored by IDEs.
+# The build (EnforceCodeStyleInBuild) only honors "dotnet_diagnostic.<ID>.severity",
+# therefore every rule that must be enforced has an explicit diagnostic entry below.
+
+###############################################################################
+# All files
+###############################################################################
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+tab_width = 4
+
+###############################################################################
+# .NET / C# code style
+###############################################################################
+[*.cs]
+max_line_length = 120
+
+# --- General .NET style --------------------------------------------------------
+dotnet_style_coalesce_expression = true:warning
+dotnet_style_null_propagation = true:warning
+dotnet_style_prefer_is_null_check_over_reference_equality_method = true:warning
+dotnet_style_prefer_auto_properties = true:warning
+dotnet_style_object_initializer = true:warning
+dotnet_style_collection_initializer = true:warning
+dotnet_style_prefer_simplified_boolean_expressions = true:warning
+dotnet_style_prefer_conditional_expression_over_assignment = true:silent
+dotnet_style_prefer_conditional_expression_over_return = true:silent
+dotnet_style_explicit_tuple_names = true:warning
+dotnet_style_prefer_inferred_tuple_names = true:warning
+dotnet_style_prefer_inferred_anonymous_type_member_names = true:warning
+dotnet_style_prefer_compound_assignment = true:warning
+dotnet_style_prefer_simplified_interpolation = true:warning
+dotnet_style_prefer_collection_expression = when_types_loosely_match:warning
+dotnet_style_namespace_match_folder = true:warning
+dotnet_style_operator_placement_when_wrapping = beginning_of_line
+dotnet_style_allow_multiple_blank_lines_experimental = true:silent
+dotnet_style_allow_statement_immediately_after_block_experimental = true:silent
+
+# --- Namespaces and usings -----------------------------------------------------
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_using_directive_placement = outside_namespace:warning
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+
+# --- var -----------------------------------------------------------------------
+csharp_style_var_when_type_is_apparent = true:warning
+csharp_style_var_elsewhere = false:warning
+csharp_style_var_for_built_in_types = false:warning
+
+# --- Object initializers / new lines -------------------------------------------
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+
+# --- Line wrapping preferences -------------------------------------------------
+csharp_wrap_parameters_style = chop_if_long
+csharp_wrap_arguments_style = chop_if_long
+csharp_wrap_chained_method_calls = chop_if_long
+csharp_wrap_before_binary_opsign = true
+csharp_wrap_after_dot_in_method_calls = false
+
+# --- Naming: symbols -----------------------------------------------------------
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+
+dotnet_naming_symbols.types.applicable_kinds = class, struct, enum, delegate
+dotnet_naming_symbols.types.applicable_accessibilities = *
+
+dotnet_naming_symbols.members.applicable_kinds = method, property, event
+dotnet_naming_symbols.members.applicable_accessibilities = *
+
+dotnet_naming_symbols.async_methods.applicable_kinds = method
+dotnet_naming_symbols.async_methods.applicable_accessibilities = *
+dotnet_naming_symbols.async_methods.required_modifiers = async
+
+dotnet_naming_symbols.constants.applicable_kinds = field, local
+dotnet_naming_symbols.constants.applicable_accessibilities = *
+dotnet_naming_symbols.constants.required_modifiers = const
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private
+
+dotnet_naming_symbols.parameters_and_locals.applicable_kinds = parameter, local
+dotnet_naming_symbols.parameters_and_locals.applicable_accessibilities = *
+
+# --- Naming: styles ------------------------------------------------------------
+dotnet_naming_style.pascal_case.capitalization = pascal_case
+
+dotnet_naming_style.begins_with_i.required_prefix = I
+dotnet_naming_style.begins_with_i.capitalization = pascal_case
+
+dotnet_naming_style.ends_with_async.required_suffix = Async
+dotnet_naming_style.ends_with_async.capitalization = pascal_case
+
+dotnet_naming_style.underscore_camel_case.required_prefix = _
+dotnet_naming_style.underscore_camel_case.capitalization = camel_case
+
+dotnet_naming_style.camel_case.capitalization = camel_case
+
+# --- Naming: rules -------------------------------------------------------------
+dotnet_naming_rule.interfaces_begin_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_begin_with_i.style = begins_with_i
+dotnet_naming_rule.interfaces_begin_with_i.severity = warning
+
+dotnet_naming_rule.types_are_pascal_case.symbols = types
+dotnet_naming_rule.types_are_pascal_case.style = pascal_case
+dotnet_naming_rule.types_are_pascal_case.severity = warning
+
+dotnet_naming_rule.async_methods_end_with_async.symbols = async_methods
+dotnet_naming_rule.async_methods_end_with_async.style = ends_with_async
+dotnet_naming_rule.async_methods_end_with_async.severity = warning
+
+dotnet_naming_rule.members_are_pascal_case.symbols = members
+dotnet_naming_rule.members_are_pascal_case.style = pascal_case
+dotnet_naming_rule.members_are_pascal_case.severity = warning
+
+dotnet_naming_rule.constants_are_pascal_case.symbols = constants
+dotnet_naming_rule.constants_are_pascal_case.style = pascal_case
+dotnet_naming_rule.constants_are_pascal_case.severity = warning
+
+dotnet_naming_rule.private_fields_are_underscore_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_are_underscore_camel_case.style = underscore_camel_case
+dotnet_naming_rule.private_fields_are_underscore_camel_case.severity = warning
+
+dotnet_naming_rule.parameters_and_locals_are_camel_case.symbols = parameters_and_locals
+dotnet_naming_rule.parameters_and_locals_are_camel_case.style = camel_case
+dotnet_naming_rule.parameters_and_locals_are_camel_case.severity = warning
+
+# --- Build enforcement (dotnet_diagnostic) -------------------------------------
+dotnet_diagnostic.IDE0005.severity = warning   # unnecessary using directive
+dotnet_diagnostic.IDE0007.severity = warning   # use var
+dotnet_diagnostic.IDE0008.severity = warning   # use explicit type
+dotnet_diagnostic.IDE0017.severity = warning   # object initializer
+dotnet_diagnostic.IDE0028.severity = warning   # collection initializer
+dotnet_diagnostic.IDE0029.severity = warning   # coalesce expression
+dotnet_diagnostic.IDE0030.severity = warning   # coalesce expression (nullable)
+dotnet_diagnostic.IDE0031.severity = warning   # null propagation
+dotnet_diagnostic.IDE0032.severity = warning   # auto property
+dotnet_diagnostic.IDE0033.severity = warning   # explicit tuple names
+dotnet_diagnostic.IDE0037.severity = warning   # inferred member names
+dotnet_diagnostic.IDE0041.severity = warning   # is null check
+dotnet_diagnostic.IDE0054.severity = warning   # compound assignment
+dotnet_diagnostic.IDE0065.severity = warning   # using placement
+dotnet_diagnostic.IDE0071.severity = warning   # simplify interpolation
+dotnet_diagnostic.IDE0074.severity = warning   # compound assignment (coalesce)
+dotnet_diagnostic.IDE0075.severity = warning   # simplify boolean expression
+dotnet_diagnostic.IDE0130.severity = warning   # namespace matches folder
+dotnet_diagnostic.IDE0161.severity = warning   # file-scoped namespace
+dotnet_diagnostic.IDE0270.severity = warning   # null check can be simplified
+dotnet_diagnostic.IDE0300.severity = warning   # collection expression (array)
+dotnet_diagnostic.IDE0301.severity = warning   # collection expression (empty)
+dotnet_diagnostic.IDE0305.severity = warning   # collection expression (fluent)
+dotnet_diagnostic.IDE1006.severity = warning   # naming rules
+
+# --- ReSharper / Rider ---------------------------------------------------------
+resharper_csharp_wrap_multiple_type_parameter_constraints_style = wrap_if_long
+resharper_keep_existing_declaration_parens_arrangement = false
+resharper_keep_existing_embedded_arrangement = false
+resharper_keep_existing_expr_member_arrangement = false
+resharper_keep_existing_primary_constructor_declaration_parens_arrangement = false
+resharper_keep_existing_switch_expression_arrangement = false
+resharper_place_simple_anonymousmethod_on_single_line = false
+resharper_place_simple_embedded_statement_on_same_line = false
+resharper_place_simple_initializer_on_single_line = false
+resharper_place_simple_property_pattern_on_single_line = false
+resharper_treat_case_statement_with_break_as_simple = false
+resharper_wrap_array_initializer_style = chop_always
+resharper_wrap_object_and_collection_initializer_style = chop_always
+resharper_wrap_property_pattern = chop_always
+resharper_wrap_parameters_style = chop_if_long
+resharper_wrap_arguments_style = chop_if_long
+resharper_wrap_chained_method_calls = chop_if_long
+resharper_wrap_before_binary_opsign = true
+resharper_wrap_after_dot_in_method_calls = false
+resharper_wrap_long_lines = true
+resharper_max_line_length = 120
+resharper_hard_wrap_at_max_line_length = true
+
+###############################################################################
+# Test projects
+# Test names follow Method_Scenario_Expectation (underscores, no Async suffix).
+###############################################################################
+[tests/**/*.cs]
+dotnet_naming_rule.async_methods_end_with_async.severity = none
+dotnet_naming_rule.members_are_pascal_case.severity = none
+
+###############################################################################
+# Other file types
+###############################################################################
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.{csproj,props,targets,slnx,xml}]
+indent_size = 2
+
+[*.md]
+trim_trailing_whitespace = false
