@@ -1,3 +1,4 @@
+using System.Runtime.CompilerServices;
 using LKCode.AddressManagement.Domain.Contracts;
 
 namespace LKCode.AddressManagement.Domain.Addresses;
@@ -94,6 +95,18 @@ public sealed class Address
     /// <param name="textNormalizer">The normalizer for the city and the postal code.</param>
     /// <param name="timeProvider">The provider of the current time.</param>
     /// <returns>The new address.</returns>
+    /// <remarks>
+    /// The values are trimmed, the country is converted to uppercase and a blank email address is stored as
+    /// <see langword="null"/>. The values are expected to be validated before; invalid values are a programming error.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException">
+    /// A required value, <paramref name="textNormalizer"/> or <paramref name="timeProvider"/> is
+    /// <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// A required value is empty or consists only of whitespace, or a value exceeds its maximum length defined in
+    /// <see cref="AddressConstraints"/>.
+    /// </exception>
     public static Address Create(
         string firstName,
         string lastName,
@@ -104,5 +117,95 @@ public sealed class Address
         string country,
         string? email,
         ITextNormalizer textNormalizer,
-        TimeProvider timeProvider) => throw new NotImplementedException();
+        TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(textNormalizer);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        var address = new Address
+        {
+            Id = Guid.CreateVersion7(now),
+            CreatedAt = now,
+        };
+        address.SetValues(
+            firstName,
+            lastName,
+            street,
+            houseNumber,
+            postalCode,
+            city,
+            country,
+            email,
+            textNormalizer,
+            now);
+
+        return address;
+    }
+
+    /// <summary>
+    /// Checks and cleans all values first and assigns them afterwards, so that the address stays unchanged if a value
+    /// is invalid.
+    /// </summary>
+    private void SetValues(
+        string firstName,
+        string lastName,
+        string street,
+        string houseNumber,
+        string postalCode,
+        string city,
+        string country,
+        string? email,
+        ITextNormalizer textNormalizer,
+        DateTimeOffset now)
+    {
+        firstName = RequireText(firstName, AddressConstraints.FirstNameMaxLength);
+        lastName = RequireText(lastName, AddressConstraints.LastNameMaxLength);
+        street = RequireText(street, AddressConstraints.StreetMaxLength);
+        houseNumber = RequireText(houseNumber, AddressConstraints.HouseNumberMaxLength);
+        postalCode = RequireText(postalCode, AddressConstraints.PostalCodeMaxLength);
+        city = RequireText(city, AddressConstraints.CityMaxLength);
+        country = RequireText(country, AddressConstraints.CountryMaxLength).ToUpperInvariant();
+        email = OptionalText(email, AddressConstraints.EmailMaxLength);
+        string normalizedCity = textNormalizer.Normalize(city);
+        string normalizedPostalCode = textNormalizer.NormalizePostalCode(postalCode);
+
+        FirstName = firstName;
+        LastName = lastName;
+        Street = street;
+        HouseNumber = houseNumber;
+        PostalCode = postalCode;
+        City = city;
+        Country = country;
+        Email = email;
+        NormalizedCity = normalizedCity;
+        NormalizedPostalCode = normalizedPostalCode;
+        UpdatedAt = now;
+    }
+
+    private static string RequireText(
+        string? value,
+        int maxLength,
+        [CallerArgumentExpression(nameof(value))] string? parameterName = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(value, parameterName);
+
+        return EnsureMaxLength(value.Trim(), maxLength, parameterName);
+    }
+
+    private static string? OptionalText(
+        string? value,
+        int maxLength,
+        [CallerArgumentExpression(nameof(value))] string? parameterName = null) =>
+        string.IsNullOrWhiteSpace(value) ? null : EnsureMaxLength(value.Trim(), maxLength, parameterName);
+
+    private static string EnsureMaxLength(string value, int maxLength, string? parameterName)
+    {
+        if (value.Length > maxLength)
+        {
+            throw new ArgumentException($"The value must not exceed {maxLength} characters.", parameterName);
+        }
+
+        return value;
+    }
 }
