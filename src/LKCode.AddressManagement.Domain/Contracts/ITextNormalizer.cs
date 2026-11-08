@@ -14,4 +14,15 @@ public interface ITextNormalizer
     /// <returns>The normalized text; an empty string if <paramref name="value"/> contains only whitespace.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
     string Normalize(string value);
+
+    /// <summary>
+    /// Normalizes a postal code: removes all whitespace and converts to uppercase,
+    /// e.g. "sw1a 1aa" results in "SW1A1AA".
+    /// </summary>
+    /// <param name="value">The postal code to normalize.</param>
+    /// <returns>
+    /// The normalized postal code; an empty string if <paramref name="value"/> contains only whitespace.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="value"/> is <see langword="null"/>.</exception>
+    string NormalizePostalCode(string value);
 }

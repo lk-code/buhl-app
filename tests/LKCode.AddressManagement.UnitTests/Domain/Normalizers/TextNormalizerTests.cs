@@ -335,4 +335,90 @@ public class TextNormalizerTests
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("value");
     }
+
+    [TestCase("sw1a 1aa", "SW1A1AA")]
+    [TestCase("SW1A 1AA", "SW1A1AA")]
+    [TestCase("50667", "50667")]
+    [TestCase(" 50667 ", "50667")]
+    [TestCase("1011 ab", "1011AB")]
+    [TestCase("k1a 0b1", "K1A0B1")]
+    [TestCase("75 001", "75001")]
+    [TestCase("  sw1a   1aa  ", "SW1A1AA")]
+    [TestCase("\tsw1a\t1aa\n", "SW1A1AA")]
+    [TestCase("sw1a 1aa", "SW1A1AA")]
+    [TestCase("sw1a\r\n1aa", "SW1A1AA")]
+    public void NormalizePostalCode_ValidPostalCode_RemovesWhitespaceAndReturnsUpperCase(
+        string value,
+        string expected)
+    {
+        // Arrange
+        var normalizer = new TextNormalizer();
+
+        // Act
+        string result = normalizer.NormalizePostalCode(value);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [TestCase("00-950", "00-950")]
+    [TestCase("a-1010", "A-1010")]
+    [TestCase("1000-001", "1000-001")]
+    [TestCase(" 00 - 950 ", "00-950")]
+    public void NormalizePostalCode_Hyphen_IsPreserved(string value, string expected)
+    {
+        // Arrange
+        var normalizer = new TextNormalizer();
+
+        // Act
+        string result = normalizer.NormalizePostalCode(value);
+
+        // Assert
+        result.Should().Be(expected);
+    }
+
+    [TestCase("50667", "50668")]
+    [TestCase("SW1A 1AA", "SW1A 1AB")]
+    [TestCase("00-950", "00950")]
+    public void NormalizePostalCode_DifferentValues_ReturnDifferentValues(string first, string second)
+    {
+        // Arrange
+        var normalizer = new TextNormalizer();
+
+        // Act
+        string firstResult = normalizer.NormalizePostalCode(first);
+        string secondResult = normalizer.NormalizePostalCode(second);
+
+        // Assert
+        firstResult.Should().NotBe(secondResult);
+    }
+
+    [TestCase("")]
+    [TestCase(" ")]
+    [TestCase("   ")]
+    [TestCase("\t\r\n ")]
+    public void NormalizePostalCode_EmptyOrWhitespace_ReturnsEmptyString(string value)
+    {
+        // Arrange
+        var normalizer = new TextNormalizer();
+
+        // Act
+        string result = normalizer.NormalizePostalCode(value);
+
+        // Assert
+        result.Should().BeEmpty();
+    }
+
+    [Test]
+    public void NormalizePostalCode_Null_ThrowsArgumentNullException()
+    {
+        // Arrange
+        var normalizer = new TextNormalizer();
+
+        // Act
+        Action act = () => normalizer.NormalizePostalCode(null!);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("value");
+    }
 }

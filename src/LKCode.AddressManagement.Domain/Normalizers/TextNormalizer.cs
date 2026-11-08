@@ -25,6 +25,9 @@ public sealed class TextNormalizer : ITextNormalizer
             .Replace("ue", "u", StringComparison.Ordinal);
     }
 
+    /// <inheritdoc />
+    public string NormalizePostalCode(string value) => throw new NotImplementedException();
+
     private static string ReplaceSpecialCharacters(string value)
     {
         var builder = new StringBuilder(value.Length);
