@@ -2,6 +2,7 @@ using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace LKCode.AddressManagement.Data.Repositories;
 
@@ -49,10 +50,58 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     }
 
     /// <inheritdoc />
-    public Task<ChangeStatus> UpdateAsync(Address address, long? expectedVersion, CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    public Task<ChangeStatus> UpdateAsync(Address address, long? expectedVersion, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+
+        EntityEntry<Address> entry = _dbContext.Addresses.Update(address);
+
+        return SaveWithExpectedVersionAsync(entry, expectedVersion, cancellationToken);
+    }
 
     /// <inheritdoc />
-    public Task<ChangeStatus> DeleteAsync(Address address, long? expectedVersion, CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    public Task<ChangeStatus> DeleteAsync(Address address, long? expectedVersion, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+
+        EntityEntry<Address> entry = _dbContext.Addresses.Remove(address);
+
+        return SaveWithExpectedVersionAsync(entry, expectedVersion, cancellationToken);
+    }
+
+    /// <summary>
+    /// Saves the change of the <paramref name="entry"/> if the stored version equals the expected version.
+    /// </summary>
+    /// <remarks>
+    /// <see cref="Address.Version"/> is a concurrency token: EF Core saves the change only if the stored version equals
+    /// the original value of the entry. Setting the original value to the expected version makes EF Core check the
+    /// version of the client instead of the loaded one. A failed check is only reported through a
+    /// <see cref="DbUpdateConcurrencyException"/>; it is an expected outcome and is returned as status.
+    /// </remarks>
+    private async Task<ChangeStatus> SaveWithExpectedVersionAsync(
+        EntityEntry<Address> entry,
+        long? expectedVersion,
+        CancellationToken cancellationToken)
+    {
+        if (expectedVersion is long version)
+        {
+            entry.Property(address => address.Version).OriginalValue = version;
+        }
+
+        try
+        {
+            await _dbContext.SaveChangesAsync(cancellationToken);
+
+            return ChangeStatus.Success;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            PropertyValues? storedValues = await entry.GetDatabaseValuesAsync(cancellationToken);
+
+            // The change was not saved and must not be saved by a later call of SaveChanges.
+            entry.State = EntityState.Detached;
+
+            return storedValues is null ? ChangeStatus.NotFound : ChangeStatus.VersionMismatch;
+        }
+    }
 }
