@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Infrastructure;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
@@ -21,6 +22,8 @@ namespace LKCode.AddressManagement.UnitTests.Service.Controllers;
 public class AddressesControllerTests
 {
     private const string GetByIdRouteName = "GetAddressById";
+
+    private const string ListTag = "addresses";
 
     private static readonly DateTimeOffset _createdAt = new(2026, 3, 14, 9, 26, 53, 589, TimeSpan.Zero);
 
@@ -107,6 +110,7 @@ public class AddressesControllerTests
     private IValidator<UpdateAddressRequest> _updateAddressValidator = null!;
     private IValidator<AddressListQuery> _addressListQueryValidator = null!;
     private IOptions<JsonOptions> _jsonOptions = null!;
+    private IOutputCacheStore _outputCacheStore = null!;
     private AddressesController _controller = null!;
 
     [SetUp]
@@ -132,12 +136,14 @@ public class AddressesControllerTests
             .Returns(new ValidationResult());
         _addressService.GetListAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>()).Returns(_addressList);
         _jsonOptions = Options.Create(new JsonOptions());
+        _outputCacheStore = Substitute.For<IOutputCacheStore>();
         _controller = new AddressesController(
             _addressService,
             _createAddressValidator,
             _updateAddressValidator,
             _addressListQueryValidator,
-            _jsonOptions)
+            _jsonOptions,
+            _outputCacheStore)
         {
             ControllerContext = new ControllerContext
             {
@@ -165,7 +171,8 @@ public class AddressesControllerTests
             _createAddressValidator,
             _updateAddressValidator,
             _addressListQueryValidator,
-            _jsonOptions);
+            _jsonOptions,
+            _outputCacheStore);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("addressService");
@@ -183,7 +190,8 @@ public class AddressesControllerTests
             createAddressValidator,
             _updateAddressValidator,
             _addressListQueryValidator,
-            _jsonOptions);
+            _jsonOptions,
+            _outputCacheStore);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("createAddressValidator");
@@ -201,7 +209,8 @@ public class AddressesControllerTests
             _createAddressValidator,
             updateAddressValidator,
             _addressListQueryValidator,
-            _jsonOptions);
+            _jsonOptions,
+            _outputCacheStore);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("updateAddressValidator");
@@ -219,7 +228,8 @@ public class AddressesControllerTests
             _createAddressValidator,
             _updateAddressValidator,
             addressListQueryValidator,
-            _jsonOptions);
+            _jsonOptions,
+            _outputCacheStore);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("addressListQueryValidator");
@@ -237,10 +247,30 @@ public class AddressesControllerTests
             _createAddressValidator,
             _updateAddressValidator,
             _addressListQueryValidator,
-            jsonOptions);
+            jsonOptions,
+            _outputCacheStore);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("jsonOptions");
+    }
+
+    [Test]
+    public void Constructor_NullOutputCacheStore_ThrowsArgumentNullException()
+    {
+        // Arrange
+        IOutputCacheStore outputCacheStore = null!;
+
+        // Act
+        Action act = () => _ = new AddressesController(
+            _addressService,
+            _createAddressValidator,
+            _updateAddressValidator,
+            _addressListQueryValidator,
+            _jsonOptions,
+            outputCacheStore);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("outputCacheStore");
     }
 
     [Test]
@@ -1236,6 +1266,155 @@ public class AddressesControllerTests
         _controller.Response.Headers.ETag.Should().BeEmpty();
     }
 
+    [Test]
+    public async Task GetByIdAsync_AnyId_EvictsNothing()
+    {
+        // Act
+        await _controller.GetByIdAsync(_address.Id, CancellationToken.None);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [Test]
+    public async Task GetListAsync_ValidQuery_EvictsNothing()
+    {
+        // Act
+        await _controller.GetListAsync(null, null, null, null, null, null, CancellationToken.None);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [Test]
+    public async Task CreateAsync_ValidRequest_EvictsOnlyListTagWithCancellationToken()
+    {
+        // Arrange
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _controller.CreateAsync(_validRequest, cancellationTokenSource.Token);
+
+        // Assert
+        await _outputCacheStore.Received(1).EvictByTagAsync(ListTag, cancellationTokenSource.Token);
+        await _outputCacheStore.ReceivedWithAnyArgs(1).EvictByTagAsync(default!, default);
+    }
+
+    [Test]
+    public async Task CreateAsync_InvalidRequest_EvictsNothing()
+    {
+        // Arrange
+        ReturnValidationErrors(new ValidationFailure("FirstName", "'First Name' must not be empty."));
+
+        // Act
+        await _controller.CreateAsync(_validRequest, CancellationToken.None);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [Test]
+    public async Task CreateAsync_InvalidModelState_EvictsNothing()
+    {
+        // Arrange
+        AddInvalidBodyError();
+
+        // Act
+        await _controller.CreateAsync(null!, CancellationToken.None);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_Saved_EvictsTagsOfAddressAndListWithCancellationToken(ChangeAction action)
+    {
+        // Arrange
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await ChangeAsync(action, _address.Id, cancellationTokenSource.Token);
+
+        // Assert
+        await _outputCacheStore.Received(1).EvictByTagAsync($"address-{_address.Id}", cancellationTokenSource.Token);
+        await _outputCacheStore.Received(1).EvictByTagAsync(ListTag, cancellationTokenSource.Token);
+        await _outputCacheStore.ReceivedWithAnyArgs(2).EvictByTagAsync(default!, default);
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_ServiceReportsVersionMismatch_EvictsNothing(ChangeAction action)
+    {
+        // Arrange
+        ReturnOnChange(ChangeStatus.VersionMismatch);
+
+        // Act
+        await ChangeAsync(action, _address.Id);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_ServiceReportsNotFound_EvictsNothing(ChangeAction action)
+    {
+        // Arrange
+        ReturnOnChange(ChangeStatus.NotFound);
+
+        // Act
+        await ChangeAsync(action, _address.Id);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    public async Task ChangeAsync_InvalidValues_EvictsNothing(ChangeAction action)
+    {
+        // Arrange
+        ReturnUpdateValidationErrors(new ValidationFailure("FirstName", "'First Name' must not be empty."));
+
+        // Act
+        await ChangeAsync(action, _address.Id);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [Test]
+    public async Task PatchAsync_InvalidOperations_EvictsNothing()
+    {
+        // Arrange
+        JsonPatchDocument<UpdateAddressRequest> patchDocument =
+            ParsePatch("""{"op": "replace", "path": "/unknown", "value": "Max"}""");
+
+        // Act
+        await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
+    [Test]
+    public async Task PatchAsync_FailedTest_EvictsNothing()
+    {
+        // Arrange
+        JsonPatchDocument<UpdateAddressRequest> patchDocument =
+            ParsePatch("""{"op": "test", "path": "/firstName", "value": "Max"}""", ReplaceFirstName);
+
+        // Act
+        await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        await AssertNothingEvictedAsync();
+    }
+
     private static JsonPatchDocument<UpdateAddressRequest> ParsePatch(params string[] operations) =>
         JsonSerializer.Deserialize<JsonPatchDocument<UpdateAddressRequest>>(
             $"[{string.Join(", ", operations)}]",
@@ -1297,13 +1476,19 @@ public class AddressesControllerTests
         });
     }
 
-    private async Task<IActionResult> ChangeAsync(ChangeAction action, Guid id) => action switch
+    private Task<IActionResult> ChangeAsync(ChangeAction action, Guid id) =>
+        ChangeAsync(action, id, CancellationToken.None);
+
+    private async Task<IActionResult> ChangeAsync(
+        ChangeAction action,
+        Guid id,
+        CancellationToken cancellationToken) => action switch
     {
         ChangeAction.Update =>
-            Convert(await _controller.UpdateAsync(id, _validUpdateRequest, CancellationToken.None)),
+            Convert(await _controller.UpdateAsync(id, _validUpdateRequest, cancellationToken)),
         ChangeAction.Patch =>
-            Convert(await _controller.PatchAsync(id, ParsePatch(ReplaceFirstName), CancellationToken.None)),
-        _ => await _controller.DeleteAsync(id, CancellationToken.None),
+            Convert(await _controller.PatchAsync(id, ParsePatch(ReplaceFirstName), cancellationToken)),
+        _ => await _controller.DeleteAsync(id, cancellationToken),
     };
 
     /// <summary>
@@ -1344,7 +1529,11 @@ public class AddressesControllerTests
         await _updateAddressValidator.DidNotReceiveWithAnyArgs().ValidateAsync(default!, default);
         await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
         await _addressService.DidNotReceiveWithAnyArgs().DeleteAsync(default, default, default);
+        await AssertNothingEvictedAsync();
     }
+
+    private async Task AssertNothingEvictedAsync() =>
+        await _outputCacheStore.DidNotReceiveWithAnyArgs().EvictByTagAsync(default!, default);
 
     private async Task AssertChangedWithExpectedVersionAsync(ChangeAction action, long? expectedVersion)
     {

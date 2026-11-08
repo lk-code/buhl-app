@@ -14,6 +14,7 @@ using LKCode.AddressManagement.Service.Preconditions;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 
@@ -28,6 +29,9 @@ namespace LKCode.AddressManagement.Service.Controllers;
 /// <param name="addressListQueryValidator">The validator of the paging and sorting parameters of the list.</param>
 /// <param name="jsonOptions">
 /// The JSON options of the controllers; their naming policy converts the property names of validation errors.
+/// </param>
+/// <param name="outputCacheStore">
+/// The store of the output cache, from which every successful change removes the affected responses.
 /// </param>
 /// <remarks>
 /// The XML documentation of the actions is the description of the endpoints in the OpenAPI document: the summary,
@@ -44,7 +48,8 @@ public sealed class AddressesController(
     IValidator<CreateAddressRequest> createAddressValidator,
     IValidator<UpdateAddressRequest> updateAddressValidator,
     IValidator<AddressListQuery> addressListQueryValidator,
-    IOptions<JsonOptions> jsonOptions) : ControllerBase
+    IOptions<JsonOptions> jsonOptions,
+    IOutputCacheStore outputCacheStore) : ControllerBase
 {
     private const string GetByIdRouteName = "GetAddressById";
     private const string ListRouteName = "ListAddresses";
@@ -84,6 +89,8 @@ public sealed class AddressesController(
     private readonly JsonNamingPolicy? _jsonNamingPolicy =
         (jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions)))
         .Value.JsonSerializerOptions.PropertyNamingPolicy;
+
+    private readonly IOutputCacheStore _outputCacheStore = outputCacheStore;
 
     /// <summary>
     /// Gets the address with the given id.
