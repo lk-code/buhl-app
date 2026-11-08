@@ -1,11 +1,41 @@
+using System.Globalization;
 using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Scalar.AspNetCore;
+using Serilog;
+using Serilog.Formatting.Compact;
+
+const string DevelopmentOutputTemplate =
+    "[{Timestamp:HH:mm:ss} {Level:u3}] {SourceContext}: {Message:lj} {Properties:j}{NewLine}{Exception}";
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
+
+// Serilog writes to the console only: readable text in development, compact JSON everywhere else. The levels come
+// from the section "Serilog" of the configuration. The static logger stays untouched, so several hosts in one
+// process (e.g. in tests) do not share a logger.
+builder.Services.AddSerilog(
+    (services, loggerConfiguration) =>
+    {
+        loggerConfiguration
+            .ReadFrom.Configuration(builder.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext();
+
+        if (builder.Environment.IsDevelopment())
+        {
+            loggerConfiguration.WriteTo.Console(
+                outputTemplate: DevelopmentOutputTemplate,
+                formatProvider: CultureInfo.InvariantCulture);
+        }
+        else
+        {
+            loggerConfiguration.WriteTo.Console(new CompactJsonFormatter());
+        }
+    },
+    preserveStaticLogger: true);
 
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services
@@ -20,6 +50,10 @@ builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 builder.Services.AddOpenApi();
 
 WebApplication app = builder.Build();
+
+// Outermost, so that it logs the final status code of every request, including 500 and 499. The logger is passed
+// explicitly, because the middleware would otherwise write to the untouched static logger.
+app.UseSerilogRequestLogging(options => options.Logger = app.Services.GetRequiredService<Serilog.ILogger>());
 
 // Handles all exceptions before the developer exception page, so no details are exposed in any environment.
 app.UseExceptionHandler();
