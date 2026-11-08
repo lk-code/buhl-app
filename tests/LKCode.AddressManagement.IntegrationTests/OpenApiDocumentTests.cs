@@ -157,7 +157,7 @@ public class OpenApiDocumentTests
     }
 
     [Test]
-    public void Responses_CreatedOrWithHeaders_AreOnlySingleAddressesWithETagAndCreatedAddressWithLocation()
+    public void Responses_CreatedOrWithHeaders_AreSingleAddressesWithETagCreatedWithLocationAndCachedWithAge()
     {
         // Act
         IEnumerable<string> responses = _operations.SelectMany(operation =>
@@ -168,8 +168,9 @@ public class OpenApiDocumentTests
 
         // Assert
         responses.Should().Equal(
+            "get /api/addresses 200: Age",
             "post /api/addresses 201: Location, ETag",
-            "get /api/addresses/{id} 200: ETag",
+            "get /api/addresses/{id} 200: ETag, Age",
             "put /api/addresses/{id} 200: ETag",
             "patch /api/addresses/{id} 200: ETag");
     }

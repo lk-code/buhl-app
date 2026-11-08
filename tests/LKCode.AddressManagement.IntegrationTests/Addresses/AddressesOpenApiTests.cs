@@ -190,6 +190,36 @@ public class AddressesOpenApiTests
         eTag.GetProperty("schema").GetProperty("pattern").GetString().Should().Be("^\"[1-9][0-9]*\"$");
     }
 
+    [TestCase("/api/addresses")]
+    [TestCase("/api/addresses/{id}")]
+    public void CachedOkResponse_AgeHeader_IsOptionalNonNegativeInt64(string path)
+    {
+        // Act
+        JsonElement headers = GetOperation("get", path).GetProperty("responses").GetProperty("200")
+            .GetProperty("headers");
+
+        // Assert
+        JsonElement age = headers.GetProperty("Age");
+        (age.TryGetProperty("required", out JsonElement required) && required.GetBoolean()).Should().BeFalse();
+        age.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        JsonElement schema = age.GetProperty("schema");
+        GetTypes(schema).Should().Equal("integer");
+        schema.GetProperty("format").GetString().Should().Be("int64");
+        schema.GetProperty("minimum").GetInt64().Should().Be(0);
+        schema.TryGetProperty("maximum", out _).Should().BeFalse();
+    }
+
+    [TestCase("/api/addresses")]
+    [TestCase("/api/addresses/{id}")]
+    public void CachedOperation_Description_MentionsServerSideCache(string path)
+    {
+        // Act
+        string? description = GetOperation("get", path).GetProperty("description").GetString();
+
+        // Assert
+        description.Should().Contain("server-side cache").And.Contain("`Age`");
+    }
+
     [TestCase("put")]
     [TestCase("patch")]
     [TestCase("delete")]
@@ -265,14 +295,14 @@ public class AddressesOpenApiTests
     }
 
     [Test]
-    public void GetListOperation_OkResponse_HasOnlyJsonWithAddressListResponse()
+    public void GetListOperation_OkResponse_HasOnlyJsonWithAddressListResponseAndAgeHeader()
     {
         // Act
         JsonElement response = GetGetListOperation().GetProperty("responses").GetProperty("200");
 
         // Assert
         response.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
-        response.TryGetProperty("headers", out _).Should().BeFalse();
+        GetNames(response.GetProperty("headers")).Should().Equal("Age");
         JsonElement content = response.GetProperty("content");
         GetNames(content).Should().Equal(JsonMediaType);
         GetSchemaReference(content.GetProperty(JsonMediaType)).Should().Be(SchemaReferencePrefix + "AddressListResponse");
