@@ -29,6 +29,7 @@ dotnet run --project src/LKCode.AddressManagement.Service
 | Methode | Pfad | Erfolg | Fehler |
 |---|---|---|---|
 | `POST` | `/api/addresses` | `201 Created` mit der Adresse und ihrer URL im `Location`-Header | `400` ungültige Werte oder ungültiges JSON, `415` Body ist kein JSON |
+| `GET` | `/api/addresses?city=&postalCode=` | `200 OK` mit der Liste der passenden Adressen, auch leer | – |
 | `GET` | `/api/addresses/{id}` | `200 OK` mit der Adresse | `404` unbekannte Id oder keine GUID |
 
 Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
@@ -37,6 +38,9 @@ Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehl
 curl -i -X POST http://localhost:5180/api/addresses \
   -H "Content-Type: application/json" \
   -d '{"firstName":"Erika","lastName":"Mustermann","street":"Hauptstrasse","houseNumber":"17","postalCode":"51147","city":"Koeln","country":"DE","email":"erika.mustermann@example.com"}'
+
+# Adressen, deren Ort „Koeln“ (also auch „Köln“) und deren PLZ „511“ enthält
+curl -i "http://localhost:5180/api/addresses?city=koeln&postalCode=511"
 ```
 
 ## Tests und Coverage
@@ -151,6 +155,9 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Der Request-Body muss JSON sein (`[Consumes("application/json")]`), sonst kommt **415**. Wie überall in ASP.NET Core gelten auch Medientypen mit dem Suffix `+json` als JSON; das OpenAPI-Dokument nennt deshalb zusätzlich `application/*+json`.
 - `201 Created` enthält im `Location`-Header die absolute URL der neuen Adresse. Die URL entsteht über die benannte Route `GetAddressById`, weil MVC das Suffix `Async` aus Action-Namen entfernt und `CreatedAtAction(nameof(GetByIdAsync))` deshalb keine Route fände.
 - Unbekannte Ids und Werte, die keine GUID sind (Constraint `{id:guid}`), liefern **404** mit denselben Problem Details wie eine unbekannte Route.
+- Die Liste (`GET /api/addresses`) hat die optionalen Query-Parameter `city` und `postalCode`. Beide suchen Teilstrings in den normalisierten Werten (siehe **Suche**): `sol`, `ingen` und `SOLin` finden `Solingen`, `Koeln` findet `Köln`. Leere Werte oder Werte nur aus Leerzeichen werden ignoriert, zwei Filter sind UND-verknüpft. Gibt es keinen Treffer, kommt **200** mit leerem Array, nicht 404.
+- Die Filter werden bewusst nicht validiert. Ein Suchbegriff ist kein gespeicherter Wert, deshalb gilt die Maximallänge der Felder für ihn nicht. Beim Ort ginge das auch fachlich nicht, weil die Normalisierung Werte verlängern kann (ß→ss). Ein Filter, der zu nichts passt, liefert einfach eine leere Liste.
+- Die Parameter sind einzeln an der Action deklariert (nicht als `[FromQuery] AddressListQuery`). So heißen sie im OpenAPI-Dokument `city` und `postalCode`, und `Core.Addresses` braucht keine ASP.NET-Attribute. Die Reihenfolge der Liste ist noch nicht festgelegt.
 
 **OpenAPI**
 - Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
