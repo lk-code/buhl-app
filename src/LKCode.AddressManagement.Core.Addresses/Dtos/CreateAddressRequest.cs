@@ -1,3 +1,5 @@
+using LKCode.AddressManagement.Core.Addresses.Contracts;
+
 namespace LKCode.AddressManagement.Core.Addresses.Dtos;
 
 /// <summary>
@@ -19,4 +21,4 @@ public sealed record CreateAddressRequest(
     string PostalCode,
     string City,
     string Country,
-    string? Email);
+    string? Email) : IAddressRequest;

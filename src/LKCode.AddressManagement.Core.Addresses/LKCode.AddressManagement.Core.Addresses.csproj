@@ -4,4 +4,8 @@
     <ProjectReference Include="..\LKCode.AddressManagement.Domain\LKCode.AddressManagement.Domain.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="FluentValidation" />
+  </ItemGroup>
+
 </Project>
