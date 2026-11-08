@@ -1,4 +1,5 @@
 using System.Linq.Expressions;
+using System.Net.Mail;
 using FluentValidation;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Domain.Addresses;
@@ -36,8 +37,18 @@ public abstract class AddressRequestValidator<TRequest> : AbstractValidator<TReq
             .WithMessage("'{PropertyName}' must be an assigned ISO 3166-1 alpha-2 country code.");
 
         RuleFor(request => request.Email)
-            .MaximumLength(AddressConstraints.EmailMaxLength);
+            .MaximumLength(AddressConstraints.EmailMaxLength)
+            .Must(IsValidEmail)
+            .WithMessage("'{PropertyName}' is not a valid email address.")
+            .When(request => !string.IsNullOrWhiteSpace(request.Email));
     }
+
+    /// <summary>
+    /// Checks the format with the parser of <see cref="MailAddress"/>, which does not throw. The parsed address must
+    /// equal the whole value, which rejects display names, comments and lists of addresses.
+    /// </summary>
+    private static bool IsValidEmail(string? email) =>
+        MailAddress.TryCreate(email, out MailAddress? address) && address.Address == email;
 
     private IRuleBuilderOptions<TRequest, string> RuleForRequiredText(
         Expression<Func<TRequest, string>> value,
