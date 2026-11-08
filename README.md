@@ -52,6 +52,21 @@ Das Repository-Interface liegt in `Core.Addresses`, die Implementierung in `Data
 | coverlet + ReportGenerator | Coverage-Messung und Reports |
 | GitHub Actions | Build, Tests und Coverage-Prüfung bei jedem Push und Pull Request |
 
+## Pakete und Lizenzen
+
+Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nicht aufgeführt.
+
+| Paket | Lizenz | Verwendung |
+|---|---|---|
+| NUnit | MIT | Testframework |
+| NUnit3TestAdapter | MIT | NUnit-Runner für Microsoft.Testing.Platform |
+| NUnit.Analyzers | MIT | Analyzer für NUnit-Tests |
+| AwesomeAssertions | Apache-2.0 | Assertions in Tests |
+| NSubstitute | BSD-3-Clause | Mocks in Tests |
+| NSubstitute.Analyzers.CSharp | MIT | Analyzer für NSubstitute |
+| coverlet.MTP | MIT | Coverage-Messung |
+| ReportGenerator (dotnet-Tool) | Apache-2.0 | Coverage-Report |
+
 ## Designentscheidungen
 
 **Persistenz**
