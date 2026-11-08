@@ -171,6 +171,10 @@ public sealed class AddressesController(
     /// <response code="404">There is no address with the id.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpDelete("{id:guid}")]
-    public Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    {
+        bool deleted = await _addressService.DeleteAsync(id, cancellationToken);
+
+        return deleted ? NoContent() : NotFound();
+    }
 }
