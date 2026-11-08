@@ -21,6 +21,18 @@ public static class AddressManagementWebApplicationFactoryExtensions
         return await addressService.CreateAsync(request, CancellationToken.None);
     }
 
+    public static async Task<AddressResponse?> FindAddressAsync(
+        this AddressManagementWebApplicationFactory factory,
+        Guid id)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        IAddressService addressService = scope.ServiceProvider.GetRequiredService<IAddressService>();
+
+        return await addressService.GetByIdAsync(id, CancellationToken.None);
+    }
+
     public static async Task<IReadOnlyList<AddressResponse>> ListAddressesAsync(
         this AddressManagementWebApplicationFactory factory)
     {

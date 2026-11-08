@@ -12,10 +12,11 @@ using Microsoft.Extensions.Options;
 namespace LKCode.AddressManagement.Service.Controllers;
 
 /// <summary>
-/// The endpoints to create, read and list addresses.
+/// The endpoints to create, read, list, change and delete addresses.
 /// </summary>
 /// <param name="addressService">The service that reads and stores the addresses.</param>
 /// <param name="createAddressValidator">The validator of the requests to create an address.</param>
+/// <param name="updateAddressValidator">The validator of the requests to change an address.</param>
 /// <param name="jsonOptions">
 /// The JSON options of the controllers; their naming policy converts the property names of validation errors.
 /// </param>
@@ -32,17 +33,23 @@ namespace LKCode.AddressManagement.Service.Controllers;
 public sealed class AddressesController(
     IAddressService addressService,
     IValidator<CreateAddressRequest> createAddressValidator,
+    IValidator<UpdateAddressRequest> updateAddressValidator,
     IOptions<JsonOptions> jsonOptions) : ControllerBase
 {
     private const string GetByIdRouteName = "GetAddressById";
     private const string ListRouteName = "ListAddresses";
     private const string CreateRouteName = "CreateAddress";
+    private const string UpdateRouteName = "UpdateAddress";
+    private const string DeleteRouteName = "DeleteAddress";
 
     private readonly IAddressService _addressService =
         addressService ?? throw new ArgumentNullException(nameof(addressService));
 
     private readonly IValidator<CreateAddressRequest> _createAddressValidator =
         createAddressValidator ?? throw new ArgumentNullException(nameof(createAddressValidator));
+
+    private readonly IValidator<UpdateAddressRequest> _updateAddressValidator =
+        updateAddressValidator ?? throw new ArgumentNullException(nameof(updateAddressValidator));
 
     private readonly JsonNamingPolicy? _jsonNamingPolicy =
         (jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions)))
@@ -101,9 +108,9 @@ public sealed class AddressesController(
         return Ok(addresses);
     }
 
-    // The parameter "request" is documented last: the OpenAPI XML comment generator of .NET 10 writes the
-    // description of every parameter that is no operation parameter, including the cancellation token, to the
-    // request body, so the last one wins.
+    // In the actions with a request body (create and update), the parameter "request" is documented last: the
+    // OpenAPI XML comment generator of .NET 10 writes the description of every parameter that is no operation
+    // parameter, including the cancellation token, to the request body, so the last one wins.
 
     /// <summary>
     /// Creates a new address.
@@ -152,5 +159,87 @@ public sealed class AddressesController(
         AddressResponse address = await _addressService.CreateAsync(sanitizedRequest, cancellationToken);
 
         return CreatedAtRoute(GetByIdRouteName, new { id = address.Id }, address);
+    }
+
+    /// <summary>
+    /// Replaces all values of the address with the given id.
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <param name="request">The new values of the address.</param>
+    /// <returns>
+    /// <c>200 OK</c> with the changed address, <c>400 Bad Request</c> with all validation errors, or
+    /// <c>404 Not Found</c> if there is no address with the id.
+    /// </returns>
+    /// <remarks>
+    /// All values are replaced; a missing or blank email address removes the existing one. Before the validation, all
+    /// values are trimmed, the country is converted to uppercase and a blank email address is treated as missing. All
+    /// validation errors are returned together, keyed by the name of the field, e.g. `firstName`. Errors in the JSON
+    /// itself are keyed by their JSON path, e.g. `$.firstName`. The body is checked before the id: an invalid body
+    /// results in `400 Bad Request` even if there is no address with the id. An unknown id and an id that is no GUID
+    /// both result in `404 Not Found`, like an unknown route.
+    /// </remarks>
+    /// <response code="200">The address was changed.</response>
+    /// <response code="400">The body is no valid JSON object of an address or contains invalid values.</response>
+    /// <response code="404">There is no address with the id.</response>
+    /// <response code="415">The body is not JSON.</response>
+    /// <response code="500">An unexpected error occurred.</response>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
+    [HttpPut("{id:guid}", Name = UpdateRouteName)]
+    [Consumes(MediaTypeNames.Application.Json)]
+    [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
+    [ProducesResponseType<ValidationProblemDetails>(
+        StatusCodes.Status400BadRequest,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status415UnsupportedMediaType,
+        MediaTypeNames.Application.ProblemJson)]
+    public async Task<ActionResult<AddressResponse>> UpdateAsync(
+        Guid id,
+        UpdateAddressRequest request,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        UpdateAddressRequest sanitizedRequest = request.Sanitize();
+        ValidationResult validationResult =
+            await _updateAddressValidator.ValidateAsync(sanitizedRequest, cancellationToken);
+        if (!validationResult.IsValid)
+        {
+            ModelState.AddValidationErrors(validationResult, _jsonNamingPolicy);
+
+            return ValidationProblem(ModelState);
+        }
+
+        AddressResponse? address = await _addressService.UpdateAsync(id, sanitizedRequest, cancellationToken);
+
+        return address is null ? NotFound() : Ok(address);
+    }
+
+    /// <summary>
+    /// Deletes the address with the given id.
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>
+    /// <c>204 No Content</c>, or <c>404 Not Found</c> if there is no address with the id.
+    /// </returns>
+    /// <remarks>
+    /// After the deletion, all requests for the id result in `404 Not Found`, including another deletion. An unknown
+    /// id and an id that is no GUID both result in `404 Not Found`, like an unknown route. It is not possible to tell
+    /// whether an address with the id has ever existed.
+    /// </remarks>
+    /// <response code="204">The address was deleted.</response>
+    /// <response code="404">There is no address with the id.</response>
+    /// <response code="500">An unexpected error occurred.</response>
+    [HttpDelete("{id:guid}", Name = DeleteRouteName)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
+    public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    {
+        bool deleted = await _addressService.DeleteAsync(id, cancellationToken);
+
+        return deleted ? NoContent() : NotFound();
     }
 }

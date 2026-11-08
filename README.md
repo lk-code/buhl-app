@@ -31,6 +31,8 @@ dotnet run --project src/LKCode.AddressManagement.Service
 | `POST` | `/api/addresses` | `201 Created` mit der Adresse und ihrer URL im `Location`-Header | `400` ungültige Werte oder ungültiges JSON, `415` Body ist kein JSON |
 | `GET` | `/api/addresses?city=&postalCode=` | `200 OK` mit der Liste der passenden Adressen, auch leer | – |
 | `GET` | `/api/addresses/{id}` | `200 OK` mit der Adresse | `404` unbekannte Id oder keine GUID |
+| `PUT` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse | `400` ungültige Werte oder ungültiges JSON, `404` unbekannte Id oder keine GUID, `415` Body ist kein JSON |
+| `DELETE` | `/api/addresses/{id}` | `204 No Content` | `404` unbekannte Id oder keine GUID |
 
 Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
 
@@ -41,6 +43,14 @@ curl -i -X POST http://localhost:5180/api/addresses \
 
 # Adressen, deren Ort „Koeln“ (also auch „Köln“) und deren PLZ „511“ enthält
 curl -i "http://localhost:5180/api/addresses?city=koeln&postalCode=511"
+
+# alle Werte einer Adresse ersetzen; ohne "email" wird eine vorhandene E-Mail entfernt
+curl -i -X PUT http://localhost:5180/api/addresses/<id> \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Max","lastName":"Mustermann","street":"Hauptstrasse","houseNumber":"1","postalCode":"10115","city":"Berlin","country":"DE"}'
+
+# Adresse löschen
+curl -i -X DELETE http://localhost:5180/api/addresses/<id>
 ```
 
 ## Tests und Coverage
@@ -158,9 +168,14 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Die Liste (`GET /api/addresses`) hat die optionalen Query-Parameter `city` und `postalCode`. Beide suchen Teilstrings in den normalisierten Werten (siehe **Suche**): `sol`, `ingen` und `SOLin` finden `Solingen`, `Koeln` findet `Köln`. Leere Werte oder Werte nur aus Leerzeichen werden ignoriert, zwei Filter sind UND-verknüpft. Gibt es keinen Treffer, kommt **200** mit leerem Array, nicht 404.
 - Die Filter werden bewusst nicht validiert. Ein Suchbegriff ist kein gespeicherter Wert, deshalb gilt die Maximallänge der Felder für ihn nicht. Beim Ort ginge das auch fachlich nicht, weil die Normalisierung Werte verlängern kann (ß→ss). Ein Filter, der zu nichts passt, liefert einfach eine leere Liste.
 - Die Parameter sind einzeln an der Action deklariert (nicht als `[FromQuery] AddressListQuery`). So heißen sie im OpenAPI-Dokument `city` und `postalCode`, und `Core.Addresses` braucht keine ASP.NET-Attribute. Die Reihenfolge der Liste ist noch nicht festgelegt.
+- `PUT /api/addresses/{id}` ist ein vollständiges Update: Alle Werte werden ersetzt, Bereinigung und Validierung laufen wie beim Anlegen. Fehlt die E-Mail oder ist sie leer, wird eine vorhandene E-Mail entfernt. `Id` und `CreatedAt` bleiben erhalten, `UpdatedAt` wird neu gesetzt. Die Antwort ist **200** mit der geänderten Adresse, ohne `Location`-Header.
+- `PUT` legt keine Adresse an: Ids vergibt der Server (GUID Version 7), eine unbekannte Id liefert **404**.
+- Prüfreihenfolge bei `PUT`: **415** (kein JSON) → **400** (ungültiges JSON) → **400** (ungültige Werte) → **404** (unbekannte Id). Der Body wird also vor der Id geprüft; ein ungültiger Body ergibt auch bei unbekannter Id **400**. 415 und Fehler im JSON entstehen in ASP.NET Core ohnehin vor der Action, und die Validierung braucht keinen Datenbankzugriff. Daran ist nicht erkennbar, ob eine Adresse existiert.
+- `DELETE /api/addresses/{id}` entfernt die Adresse und antwortet mit **204** ohne Body. Danach liefern `GET`, `PUT` und erneutes `DELETE` für diese Id **404** mit denselben Problem Details wie für eine nie vergebene Id.
 
 **OpenAPI**
 - Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
+- Die `operationId`s kommen aus den Routennamen der Actions: `CreateAddress`, `GetAddressById`, `ListAddresses`, `UpdateAddress` und `DeleteAddress`. Die Antwort **204** von `DELETE` hat keinen Body und deshalb kein Schema.
 - `LocationHeaderOperationTransformer` beschreibt den `Location`-Header jeder 201-Antwort, denn Attribute können keine Header beschreiben.
 - `AddressSchemaTransformer` ergänzt die Schemas der Requests und von `AddressResponse` aus `AddressConstraints`: `required`, `minLength`/`maxLength`, `pattern` `^[A-Z]{2}$` für `country` sowie `format: email` und `null` als erlaubten Typ für `email`. Die Schemas beschreiben bereinigte Werte; die API nimmt auch Werte mit Leerzeichen am Rand oder `country` in Kleinbuchstaben an.
 - Fallstrick im XML-Kommentar-Generator von .NET 10: Er schreibt die Beschreibung jedes `<param>`, der kein Operation-Parameter ist, an den Request-Body, also auch die des `CancellationToken`. Der Body-Parameter wird deshalb als letzter dokumentiert.

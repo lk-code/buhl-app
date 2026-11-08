@@ -52,9 +52,30 @@ public class AddressesControllerTests
         " de ",
         "   ");
 
+    private static readonly UpdateAddressRequest _validUpdateRequest = new(
+        "Max",
+        "Mustermann",
+        "Hauptstraße",
+        "1",
+        "10115",
+        "Berlin",
+        "DE",
+        null);
+
+    private static readonly UpdateAddressRequest _unsanitizedUpdateRequest = new(
+        " Max ",
+        "Mustermann\t",
+        "  Hauptstraße",
+        "1 ",
+        " 10115",
+        "\nBerlin",
+        "de",
+        " max.mustermann@example.com ");
+
     private ServiceProvider _serviceProvider = null!;
     private IAddressService _addressService = null!;
     private IValidator<CreateAddressRequest> _createAddressValidator = null!;
+    private IValidator<UpdateAddressRequest> _updateAddressValidator = null!;
     private IOptions<JsonOptions> _jsonOptions = null!;
     private AddressesController _controller = null!;
 
@@ -68,8 +89,16 @@ public class AddressesControllerTests
         _createAddressValidator
             .ValidateAsync(Arg.Any<CreateAddressRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValidationResult());
+        _updateAddressValidator = Substitute.For<IValidator<UpdateAddressRequest>>();
+        _updateAddressValidator
+            .ValidateAsync(Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ValidationResult());
         _jsonOptions = Options.Create(new JsonOptions());
-        _controller = new AddressesController(_addressService, _createAddressValidator, _jsonOptions)
+        _controller = new AddressesController(
+            _addressService,
+            _createAddressValidator,
+            _updateAddressValidator,
+            _jsonOptions)
         {
             ControllerContext = new ControllerContext
             {
@@ -91,7 +120,11 @@ public class AddressesControllerTests
         IAddressService addressService = null!;
 
         // Act
-        Action act = () => _ = new AddressesController(addressService, _createAddressValidator, _jsonOptions);
+        Action act = () => _ = new AddressesController(
+            addressService,
+            _createAddressValidator,
+            _updateAddressValidator,
+            _jsonOptions);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("addressService");
@@ -104,10 +137,31 @@ public class AddressesControllerTests
         IValidator<CreateAddressRequest> createAddressValidator = null!;
 
         // Act
-        Action act = () => _ = new AddressesController(_addressService, createAddressValidator, _jsonOptions);
+        Action act = () => _ = new AddressesController(
+            _addressService,
+            createAddressValidator,
+            _updateAddressValidator,
+            _jsonOptions);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("createAddressValidator");
+    }
+
+    [Test]
+    public void Constructor_NullUpdateAddressValidator_ThrowsArgumentNullException()
+    {
+        // Arrange
+        IValidator<UpdateAddressRequest> updateAddressValidator = null!;
+
+        // Act
+        Action act = () => _ = new AddressesController(
+            _addressService,
+            _createAddressValidator,
+            updateAddressValidator,
+            _jsonOptions);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("updateAddressValidator");
     }
 
     [Test]
@@ -117,7 +171,11 @@ public class AddressesControllerTests
         IOptions<JsonOptions> jsonOptions = null!;
 
         // Act
-        Action act = () => _ = new AddressesController(_addressService, _createAddressValidator, jsonOptions);
+        Action act = () => _ = new AddressesController(
+            _addressService,
+            _createAddressValidator,
+            _updateAddressValidator,
+            jsonOptions);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("jsonOptions");
@@ -314,10 +372,181 @@ public class AddressesControllerTests
         await _addressService.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
     }
 
+    [Test]
+    public async Task UpdateAsync_NullRequest_ThrowsArgumentNullException()
+    {
+        // Arrange
+        UpdateAddressRequest request = null!;
+
+        // Act
+        Func<Task> act = () => _controller.UpdateAsync(_address.Id, request, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("request");
+    }
+
+    [Test]
+    public async Task UpdateAsync_UnsanitizedRequest_ValidatesSanitizedRequest()
+    {
+        // Act
+        await _controller.UpdateAsync(_address.Id, _unsanitizedUpdateRequest, CancellationToken.None);
+
+        // Assert
+        await _updateAddressValidator.Received(1)
+            .ValidateAsync(_unsanitizedUpdateRequest.Sanitize(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task UpdateAsync_UnsanitizedValidRequest_UpdatesAddressWithSanitizedRequest()
+    {
+        // Act
+        await _controller.UpdateAsync(_address.Id, _unsanitizedUpdateRequest, CancellationToken.None);
+
+        // Assert
+        await _addressService.Received(1)
+            .UpdateAsync(_address.Id, _unsanitizedUpdateRequest.Sanitize(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task UpdateAsync_ValidRequest_PassesCancellationTokenToValidatorAndService()
+    {
+        // Arrange
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _controller.UpdateAsync(_address.Id, _validUpdateRequest, cancellationTokenSource.Token);
+
+        // Assert
+        await _updateAddressValidator.Received(1)
+            .ValidateAsync(Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
+        await _addressService.Received(1)
+            .UpdateAsync(Arg.Any<Guid>(), Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task UpdateAsync_KnownId_ReturnsOkWithAddress()
+    {
+        // Arrange
+        AddressResponse updated = _address with { FirstName = "Max", City = "Berlin" };
+        _addressService
+            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(updated);
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.UpdateAsync(_address.Id, _validUpdateRequest, CancellationToken.None);
+
+        // Assert
+        result.Result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(updated);
+    }
+
+    [Test]
+    public async Task UpdateAsync_UnknownId_ReturnsNotFound()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7(_createdAt);
+        _addressService
+            .UpdateAsync(id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns((AddressResponse?)null);
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.UpdateAsync(id, _validUpdateRequest, CancellationToken.None);
+
+        // Assert
+        result.Result.Should().BeOfType<NotFoundResult>();
+    }
+
+    [Test]
+    public async Task UpdateAsync_InvalidRequest_ReturnsValidationProblemWithJsonNames()
+    {
+        // Arrange
+        ReturnUpdateValidationErrors(
+            new ValidationFailure("LastName", "'Last Name' must not be empty."),
+            new ValidationFailure("HouseNumber", "The length of 'House Number' must be 20 characters or fewer."),
+            new ValidationFailure("Country", "'Country' must be an assigned ISO 3166-1 alpha-2 country code."));
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.UpdateAsync(_address.Id, _validUpdateRequest, CancellationToken.None);
+
+        // Assert
+        ObjectResult objectResult = result.Result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        ValidationProblemDetails problem = objectResult.Value.Should().BeOfType<ValidationProblemDetails>().Which;
+        problem.Status.Should().Be(StatusCodes.Status400BadRequest);
+        problem.Errors.Should().BeEquivalentTo(new Dictionary<string, string[]>
+        {
+            ["lastName"] = ["'Last Name' must not be empty."],
+            ["houseNumber"] = ["The length of 'House Number' must be 20 characters or fewer."],
+            ["country"] = ["'Country' must be an assigned ISO 3166-1 alpha-2 country code."],
+        });
+    }
+
+    [Test]
+    public async Task UpdateAsync_InvalidRequest_DoesNotUpdateAddress()
+    {
+        // Arrange
+        ReturnUpdateValidationErrors(new ValidationFailure("FirstName", "'First Name' must not be empty."));
+
+        // Act
+        await _controller.UpdateAsync(_address.Id, _validUpdateRequest, CancellationToken.None);
+
+        // Assert
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    [Test]
+    public async Task DeleteAsync_KnownId_ReturnsNoContent()
+    {
+        // Arrange
+        _addressService.DeleteAsync(_address.Id, Arg.Any<CancellationToken>()).Returns(true);
+
+        // Act
+        IActionResult result = await _controller.DeleteAsync(_address.Id, CancellationToken.None);
+
+        // Assert
+        result.Should().BeOfType<NoContentResult>();
+    }
+
+    [Test]
+    public async Task DeleteAsync_UnknownId_ReturnsNotFound()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7(_createdAt);
+        _addressService.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(false);
+
+        // Act
+        IActionResult result = await _controller.DeleteAsync(id, CancellationToken.None);
+
+        // Assert
+        result.Should().BeOfType<NotFoundResult>();
+    }
+
+    [Test]
+    public async Task DeleteAsync_AnyId_PassesIdAndCancellationToken()
+    {
+        // Arrange
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _controller.DeleteAsync(_address.Id, cancellationTokenSource.Token);
+
+        // Assert
+        await _addressService.Received(1).DeleteAsync(_address.Id, cancellationTokenSource.Token);
+    }
+
     private void ReturnValidationErrors(params ValidationFailure[] failures)
     {
         _createAddressValidator
             .ValidateAsync(Arg.Any<CreateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(new ValidationResult(failures));
+    }
+
+    private void ReturnUpdateValidationErrors(params ValidationFailure[] failures)
+    {
+        _updateAddressValidator
+            .ValidateAsync(Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValidationResult(failures));
     }
 }
