@@ -13,6 +13,21 @@ public static class AddressListQuerySanitizerExtensions
     /// </summary>
     /// <param name="query">The query to clean.</param>
     /// <returns>A new query with the cleaned values.</returns>
+    /// <remarks>The numbers are kept, so that the validation reports invalid ones.</remarks>
     /// <exception cref="ArgumentNullException"><paramref name="query"/> is <see langword="null"/>.</exception>
-    public static AddressListQuery Sanitize(this AddressListQuery query) => throw new NotImplementedException();
+    public static AddressListQuery Sanitize(this AddressListQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        return query with
+        {
+            City = SanitizeOptional(query.City),
+            PostalCode = SanitizeOptional(query.PostalCode),
+            SortBy = SanitizeOptional(query.SortBy),
+            SortDirection = SanitizeOptional(query.SortDirection),
+        };
+    }
+
+    private static string? SanitizeOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
