@@ -16,6 +16,19 @@ public static class AddressMappingExtensions
     /// <exception cref="ArgumentNullException"><paramref name="address"/> is <see langword="null"/>.</exception>
     public static AddressResponse ToResponse(this Address address)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(address);
+
+        return new AddressResponse(
+            address.Id,
+            address.FirstName,
+            address.LastName,
+            address.Street,
+            address.HouseNumber,
+            address.PostalCode,
+            address.City,
+            address.Country,
+            address.Email,
+            address.CreatedAt,
+            address.UpdatedAt);
     }
 }
