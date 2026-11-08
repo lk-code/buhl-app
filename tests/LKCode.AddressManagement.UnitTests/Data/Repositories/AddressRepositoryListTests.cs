@@ -13,9 +13,8 @@ using Microsoft.Extensions.Time.Testing;
 namespace LKCode.AddressManagement.UnitTests.Data.Repositories;
 
 /// <summary>
-/// Tests listing addresses with <see cref="AddressRepository.ListAsync(AddressListCriteria, CancellationToken)"/>
-/// against the EF Core InMemory provider: filters, sort order and pages. Every test uses its own database, and
-/// arrange and act use separate contexts.
+/// Tests listing addresses with <see cref="AddressRepository.ListAsync"/> against the EF Core InMemory provider:
+/// filters, sort order and pages. Every test uses its own database, and arrange and act use separate contexts.
 /// </summary>
 public class AddressRepositoryListTests
 {

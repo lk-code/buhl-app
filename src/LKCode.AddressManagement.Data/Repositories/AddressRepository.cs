@@ -22,13 +22,6 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
         _dbContext.Addresses.FirstOrDefaultAsync(address => address.Id == id, cancellationToken);
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<Address>> ListAsync(
-        string? normalizedCity,
-        string? normalizedPostalCode,
-        CancellationToken cancellationToken) =>
-        await Filter(normalizedCity, normalizedPostalCode).ToListAsync(cancellationToken);
-
-    /// <inheritdoc />
     /// <remarks>
     /// Two queries run in the database: one counts the matching addresses, the other loads only the addresses of the
     /// page by sorting, skipping and taking on the <see cref="IQueryable{T}"/>. The second query is skipped if the

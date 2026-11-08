@@ -19,12 +19,6 @@ public sealed class RendezvousAddressRepository(AddressRepository inner, Rendezv
     public Task<Address?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         inner.GetByIdAsync(id, cancellationToken);
 
-    public Task<IReadOnlyList<Address>> ListAsync(
-        string? normalizedCity,
-        string? normalizedPostalCode,
-        CancellationToken cancellationToken) =>
-        inner.ListAsync(normalizedCity, normalizedPostalCode, cancellationToken);
-
     public Task<AddressPage> ListAsync(AddressListCriteria criteria, CancellationToken cancellationToken) =>
         inner.ListAsync(criteria, cancellationToken);
 
