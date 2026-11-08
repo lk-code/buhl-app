@@ -19,15 +19,23 @@ namespace LKCode.AddressManagement.Service.Controllers;
 /// <param name="jsonOptions">
 /// The JSON options of the controllers; their naming policy converts the property names of validation errors.
 /// </param>
+/// <remarks>
+/// The XML documentation of the actions is the description of the endpoints in the OpenAPI document: the summary,
+/// the remarks, the parameters and a <c>response</c> element for each status code.
+/// </remarks>
 /// <exception cref="ArgumentNullException">A parameter is <see langword="null"/>.</exception>
 [ApiController]
 [Route("api/addresses")]
+[ProducesResponseType<ProblemDetails>(
+    StatusCodes.Status500InternalServerError,
+    MediaTypeNames.Application.ProblemJson)]
 public sealed class AddressesController(
     IAddressService addressService,
     IValidator<CreateAddressRequest> createAddressValidator,
     IOptions<JsonOptions> jsonOptions) : ControllerBase
 {
     private const string GetByIdRouteName = "GetAddressById";
+    private const string CreateRouteName = "CreateAddress";
 
     private readonly IAddressService _addressService =
         addressService ?? throw new ArgumentNullException(nameof(addressService));
@@ -46,10 +54,15 @@ public sealed class AddressesController(
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <returns>The address, or <c>404 Not Found</c> if there is no address with the id.</returns>
     /// <remarks>
-    /// An unknown id and an id that is no GUID both result in <c>404 Not Found</c> with Problem Details, like an
-    /// unknown route. A client cannot tell whether an address with the id has ever existed.
+    /// An unknown id and an id that is no GUID both result in `404 Not Found`, like an unknown route. It is not
+    /// possible to tell whether an address with the id has ever existed.
     /// </remarks>
+    /// <response code="200">The address.</response>
+    /// <response code="404">There is no address with the id.</response>
+    /// <response code="500">An unexpected error occurred.</response>
     [HttpGet("{id:guid}", Name = GetByIdRouteName)]
+    [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     public async Task<ActionResult<AddressResponse>> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
@@ -57,29 +70,38 @@ public sealed class AddressesController(
         return address is null ? NotFound() : Ok(address);
     }
 
+    // The parameter "request" is documented last: the OpenAPI XML comment generator of .NET 10 writes the
+    // description of every parameter that is no operation parameter, including the cancellation token, to the
+    // request body, so the last one wins.
+
     /// <summary>
     /// Creates a new address.
     /// </summary>
-    /// <param name="request">The values of the new address.</param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <param name="request">The values of the new address.</param>
     /// <returns>
     /// <c>201 Created</c> with the new address and its URL in the <c>Location</c> header, or
     /// <c>400 Bad Request</c> with all validation errors.
     /// </returns>
     /// <remarks>
-    /// <para>
-    /// The values are sanitized before they are validated: they are trimmed, the country is converted to uppercase
-    /// and a blank email address is treated as missing. The keys of the validation errors are the names of the
-    /// fields in the JSON body, e.g. <c>firstName</c>.
-    /// </para>
-    /// <para>
-    /// A body that is no valid JSON object of an address results in <c>400 Bad Request</c> before this method is
-    /// called; a body that is not <c>application/json</c> results in <c>415 Unsupported Media Type</c>.
-    /// </para>
+    /// Before the validation, all values are trimmed, the country is converted to uppercase and a blank email
+    /// address is treated as missing. All validation errors are returned together, keyed by the name of the field,
+    /// e.g. `firstName`. Errors in the JSON itself are keyed by their JSON path, e.g. `$.firstName`.
     /// </remarks>
+    /// <response code="201">The address was created; the `Location` header contains its URL.</response>
+    /// <response code="400">The body is no valid JSON object of an address or contains invalid values.</response>
+    /// <response code="415">The body is not JSON.</response>
+    /// <response code="500">An unexpected error occurred.</response>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
-    [HttpPost]
+    [HttpPost(Name = CreateRouteName)]
     [Consumes(MediaTypeNames.Application.Json)]
+    [ProducesResponseType<AddressResponse>(StatusCodes.Status201Created, MediaTypeNames.Application.Json)]
+    [ProducesResponseType<ValidationProblemDetails>(
+        StatusCodes.Status400BadRequest,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status415UnsupportedMediaType,
+        MediaTypeNames.Application.ProblemJson)]
     public async Task<ActionResult<AddressResponse>> CreateAsync(
         CreateAddressRequest request,
         CancellationToken cancellationToken)
