@@ -89,6 +89,53 @@ public class AddressMappingExtensionsTests
     }
 
     [Test]
+    public void ToUpdateRequest_Response_MapsAllValues()
+    {
+        // Arrange
+        AddressResponse response = CreateAddress(AddressInput.Changed).ToResponse();
+
+        // Act
+        UpdateAddressRequest request = response.ToUpdateRequest();
+
+        // Assert
+        request.Should().Be(new UpdateAddressRequest(
+            "Max",
+            "Musterfrau",
+            "Hauptstraße",
+            "4a",
+            "SW1A 1AA",
+            "London",
+            "GB",
+            "max.musterfrau@example.org"));
+    }
+
+    [Test]
+    public void ToUpdateRequest_ResponseWithoutEmail_MapsEmailAsNull()
+    {
+        // Arrange
+        AddressResponse response = CreateAddress(AddressInput.Valid with { Email = null }).ToResponse();
+
+        // Act
+        UpdateAddressRequest request = response.ToUpdateRequest();
+
+        // Assert
+        request.Email.Should().BeNull();
+    }
+
+    [Test]
+    public void ToUpdateRequest_NullResponse_ThrowsArgumentNullException()
+    {
+        // Arrange
+        AddressResponse response = null!;
+
+        // Act
+        Action act = () => response.ToUpdateRequest();
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("response");
+    }
+
+    [Test]
     public void ToAddress_ValidRequest_CreatesAddressWithAllValues()
     {
         // Arrange
