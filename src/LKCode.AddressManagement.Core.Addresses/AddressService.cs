@@ -1,6 +1,7 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
 using Microsoft.Extensions.Logging;
@@ -85,42 +86,16 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public async Task<AddressResponse?> UpdateAsync(
+    public Task<AddressChangeResult> UpdateAsync(
         Guid id,
+        long? expectedVersion,
         UpdateAddressRequest request,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-
-        Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
-        if (address is null)
-        {
-            LogAddressNotFound(_logger, id);
-            return null;
-        }
-
-        request.ApplyTo(address, _textNormalizer, _timeProvider);
-        await _addressRepository.UpdateAsync(address, expectedVersion: null, cancellationToken);
-        LogAddressUpdated(_logger, id);
-
-        return address.ToResponse();
-    }
+        CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 
     /// <inheritdoc />
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
-    {
-        Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
-        if (address is null)
-        {
-            LogAddressNotFound(_logger, id);
-            return false;
-        }
-
-        await _addressRepository.DeleteAsync(address, expectedVersion: null, cancellationToken);
-        LogAddressDeleted(_logger, id);
-
-        return true;
-    }
+    public Task<ChangeStatus> DeleteAsync(Guid id, long? expectedVersion, CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Created address {AddressId}")]
     private static partial void LogAddressCreated(ILogger logger, Guid addressId);

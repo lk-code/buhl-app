@@ -4,6 +4,7 @@ using FluentValidation;
 using FluentValidation.Results;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Controllers;
 using Microsoft.AspNetCore.Http;
@@ -409,7 +410,11 @@ public class AddressesControllerTests
 
         // Assert
         await _addressService.Received(1)
-            .UpdateAsync(_address.Id, _unsanitizedUpdateRequest.Sanitize(), Arg.Any<CancellationToken>());
+            .UpdateAsync(
+                _address.Id,
+                Arg.Any<long?>(),
+                _unsanitizedUpdateRequest.Sanitize(),
+                Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -425,7 +430,11 @@ public class AddressesControllerTests
         await _updateAddressValidator.Received(1)
             .ValidateAsync(Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
         await _addressService.Received(1)
-            .UpdateAsync(Arg.Any<Guid>(), Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
+            .UpdateAsync(
+                Arg.Any<Guid>(),
+                Arg.Any<long?>(),
+                Arg.Any<UpdateAddressRequest>(),
+                cancellationTokenSource.Token);
     }
 
     [Test]
@@ -434,8 +443,8 @@ public class AddressesControllerTests
         // Arrange
         AddressResponse updated = _address with { FirstName = "Max", City = "Berlin" };
         _addressService
-            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
-            .Returns(updated);
+            .UpdateAsync(_address.Id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(AddressChangeResult.Success(updated));
 
         // Act
         ActionResult<AddressResponse> result =
@@ -451,8 +460,8 @@ public class AddressesControllerTests
         // Arrange
         var id = Guid.CreateVersion7(_createdAt);
         _addressService
-            .UpdateAsync(id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
-            .Returns((AddressResponse?)null);
+            .UpdateAsync(id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(AddressChangeResult.NotFound);
 
         // Act
         ActionResult<AddressResponse> result =
@@ -498,7 +507,7 @@ public class AddressesControllerTests
         await _controller.UpdateAsync(_address.Id, _validUpdateRequest, CancellationToken.None);
 
         // Assert
-        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
     }
 
     [Test]
@@ -549,7 +558,7 @@ public class AddressesControllerTests
 
         // Assert
         await _addressService.DidNotReceiveWithAnyArgs().GetByIdAsync(default, default);
-        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
     }
 
     [Test]
@@ -565,7 +574,7 @@ public class AddressesControllerTests
 
         // Assert
         result.Result.Should().BeOfType<NotFoundResult>();
-        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
     }
 
     [Test]
@@ -604,7 +613,7 @@ public class AddressesControllerTests
 
         // Assert
         await _updateAddressValidator.DidNotReceiveWithAnyArgs().ValidateAsync(default!, default);
-        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
     }
 
     [Test]
@@ -643,6 +652,7 @@ public class AddressesControllerTests
         // Assert
         await _addressService.Received(1).UpdateAsync(
             _address.Id,
+            Arg.Any<long?>(),
             new UpdateAddressRequest("Erika", "Mustermann", "Köln", "4a", "51147", "Köln", "DE", null),
             Arg.Any<CancellationToken>());
     }
@@ -659,6 +669,7 @@ public class AddressesControllerTests
         // Assert
         await _addressService.Received(1).UpdateAsync(
             _address.Id,
+            Arg.Any<long?>(),
             new UpdateAddressRequest(
                 "Erika",
                 "Mustermann",
@@ -678,8 +689,8 @@ public class AddressesControllerTests
         ReturnAddressForPatch();
         AddressResponse updated = _address with { FirstName = "Max" };
         _addressService
-            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
-            .Returns(updated);
+            .UpdateAsync(_address.Id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(AddressChangeResult.Success(updated));
 
         // Act
         ActionResult<AddressResponse> result =
@@ -695,8 +706,8 @@ public class AddressesControllerTests
         // Arrange
         ReturnAddressForPatch();
         _addressService
-            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
-            .Returns((AddressResponse?)null);
+            .UpdateAsync(_address.Id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(AddressChangeResult.NotFound);
 
         // Act
         ActionResult<AddressResponse> result =
@@ -758,7 +769,7 @@ public class AddressesControllerTests
             CancellationToken.None);
 
         // Assert
-        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
     }
 
     [Test]
@@ -776,14 +787,15 @@ public class AddressesControllerTests
         await _updateAddressValidator.Received(1)
             .ValidateAsync(Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
         await _addressService.Received(1)
-            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
+            .UpdateAsync(_address.Id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
     }
 
     [Test]
     public async Task DeleteAsync_KnownId_ReturnsNoContent()
     {
         // Arrange
-        _addressService.DeleteAsync(_address.Id, Arg.Any<CancellationToken>()).Returns(true);
+        _addressService.DeleteAsync(_address.Id, Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(ChangeStatus.Success);
 
         // Act
         IActionResult result = await _controller.DeleteAsync(_address.Id, CancellationToken.None);
@@ -797,7 +809,7 @@ public class AddressesControllerTests
     {
         // Arrange
         var id = Guid.CreateVersion7(_createdAt);
-        _addressService.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(false);
+        _addressService.DeleteAsync(id, Arg.Any<long?>(), Arg.Any<CancellationToken>()).Returns(ChangeStatus.NotFound);
 
         // Act
         IActionResult result = await _controller.DeleteAsync(id, CancellationToken.None);
@@ -816,7 +828,7 @@ public class AddressesControllerTests
         await _controller.DeleteAsync(_address.Id, cancellationTokenSource.Token);
 
         // Assert
-        await _addressService.Received(1).DeleteAsync(_address.Id, cancellationTokenSource.Token);
+        await _addressService.Received(1).DeleteAsync(_address.Id, Arg.Any<long?>(), cancellationTokenSource.Token);
     }
 
     private static JsonPatchDocument<UpdateAddressRequest> ParsePatch(params string[] operations) =>

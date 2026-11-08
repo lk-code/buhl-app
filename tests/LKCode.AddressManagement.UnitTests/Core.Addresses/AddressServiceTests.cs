@@ -1,8 +1,10 @@
+using System.Globalization;
 using AwesomeAssertions;
 using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
 using LKCode.AddressManagement.UnitTests.Domain.Addresses;
@@ -421,10 +423,11 @@ public class AddressServiceTests
         UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
 
         // Act
-        await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+        await _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         AddressInput.From(address).Should().Be(AddressInput.Changed);
+        address.Version.Should().Be(2);
         await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
@@ -438,7 +441,7 @@ public class AddressServiceTests
         UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
 
         // Act
-        await _service.UpdateAsync(id, request, CancellationToken.None);
+        await _service.UpdateAsync(id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         address.Id.Should().Be(id);
@@ -448,8 +451,24 @@ public class AddressServiceTests
         address.NormalizedPostalCode.Should().Be("postal:SW1A 1AA");
     }
 
+    [TestCase(1L)]
+    [TestCase(7L)]
+    [TestCase(null)]
+    public async Task UpdateAsync_KnownId_PassesExpectedVersionToRepository(long? expectedVersion)
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        await _service.UpdateAsync(address.Id, expectedVersion, request, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).UpdateAsync(address, expectedVersion, Arg.Any<CancellationToken>());
+    }
+
     [Test]
-    public async Task UpdateAsync_KnownId_ReturnsResponseOfUpdatedAddress()
+    public async Task UpdateAsync_Saved_ReturnsSuccessWithResponseOfUpdatedAddress()
     {
         // Arrange
         Address address = CreateStoredAddress();
@@ -457,10 +476,12 @@ public class AddressServiceTests
         UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
 
         // Act
-        AddressResponse? response = await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+        AddressChangeResult result =
+            await _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
-        response.Should().Be(new AddressResponse(
+        result.Status.Should().Be(ChangeStatus.Success);
+        result.Address.Should().Be(new AddressResponse(
             address.Id,
             "Max",
             "Musterfrau",
@@ -483,26 +504,60 @@ public class AddressServiceTests
         UpdateAddressRequest request = (AddressInput.Changed with { Email = null }).ToUpdateRequest();
 
         // Act
-        AddressResponse? response = await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+        AddressChangeResult result =
+            await _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         address.Email.Should().BeNull();
-        response!.Email.Should().BeNull();
+        result.Address!.Email.Should().BeNull();
     }
 
     [Test]
-    public async Task UpdateAsync_UnknownId_ReturnsNullAndSavesNothing()
+    public async Task UpdateAsync_UnknownId_ReturnsNotFoundAndSavesNothing()
     {
         // Arrange
         var id = Guid.CreateVersion7();
         UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
 
         // Act
-        AddressResponse? response = await _service.UpdateAsync(id, request, CancellationToken.None);
+        AddressChangeResult result =
+            await _service.UpdateAsync(id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
-        response.Should().BeNull();
+        result.Should().Be(AddressChangeResult.NotFound);
         await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default, default);
+    }
+
+    [Test]
+    public async Task UpdateAsync_RepositoryReportsNotFound_ReturnsNotFound()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnOnUpdate(address, ChangeStatus.NotFound);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        AddressChangeResult result =
+            await _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
+
+        // Assert
+        result.Should().Be(AddressChangeResult.NotFound);
+    }
+
+    [Test]
+    public async Task UpdateAsync_RepositoryReportsVersionMismatch_ReturnsVersionMismatch()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnOnUpdate(address, ChangeStatus.VersionMismatch);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        AddressChangeResult result =
+            await _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
+
+        // Assert
+        result.Should().Be(AddressChangeResult.VersionMismatch);
     }
 
     [Test]
@@ -514,7 +569,7 @@ public class AddressServiceTests
         using var cancellationTokenSource = new CancellationTokenSource();
 
         // Act
-        await _service.UpdateAsync(address.Id, request, cancellationTokenSource.Token);
+        await _service.UpdateAsync(address.Id, expectedVersion: 1, request, cancellationTokenSource.Token);
 
         // Assert
         await _addressRepository.Received(1).GetByIdAsync(address.Id, cancellationTokenSource.Token);
@@ -522,14 +577,14 @@ public class AddressServiceTests
     }
 
     [Test]
-    public async Task UpdateAsync_KnownId_LogsUpdatedAddress()
+    public async Task UpdateAsync_Saved_LogsUpdatedAddress()
     {
         // Arrange
         Address address = CreateStoredAddress();
         UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
 
         // Act
-        await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+        await _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         ShouldHaveLoggedSingle(LogLevel.Information, 5, $"Updated address {address.Id}", address.Id);
@@ -543,10 +598,49 @@ public class AddressServiceTests
         UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
 
         // Act
-        await _service.UpdateAsync(id, request, CancellationToken.None);
+        await _service.UpdateAsync(id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {id} was not found", id);
+    }
+
+    [Test]
+    public async Task UpdateAsync_RepositoryReportsNotFound_LogsNotFound()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnOnUpdate(address, ChangeStatus.NotFound);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        await _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {address.Id} was not found", address.Id);
+    }
+
+    [TestCase(1L, "1")]
+    [TestCase(null, "(null)")]
+    public async Task UpdateAsync_RepositoryReportsVersionMismatch_LogsVersionMismatch(
+        long? expectedVersion,
+        string loggedVersion)
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnOnUpdate(address, ChangeStatus.VersionMismatch);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        await _service.UpdateAsync(address.Id, expectedVersion, request, CancellationToken.None);
+
+        // Assert
+        FakeLogRecord record = ShouldHaveLoggedSingle(
+            LogLevel.Information,
+            7,
+            $"Address {address.Id} was not saved: its version differs from the expected version {loggedVersion}");
+        record.GetStructuredStateValue("AddressId").Should().Be(address.Id.ToString());
+        record.GetStructuredStateValue("ExpectedVersion")
+            .Should().Be(expectedVersion?.ToString(CultureInfo.InvariantCulture));
     }
 
     [Test]
@@ -559,7 +653,7 @@ public class AddressServiceTests
             .ThrowsAsync(new OperationCanceledException());
 
         // Act
-        Func<Task> act = () => _service.UpdateAsync(address.Id, request, CancellationToken.None);
+        Func<Task> act = () => _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<OperationCanceledException>();
@@ -574,7 +668,7 @@ public class AddressServiceTests
         UpdateAddressRequest request = (AddressInput.Changed with { City = "" }).ToUpdateRequest();
 
         // Act
-        Func<Task> act = () => _service.UpdateAsync(address.Id, request, CancellationToken.None);
+        Func<Task> act = () => _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<ArgumentException>().WithParameterName("city");
@@ -591,7 +685,7 @@ public class AddressServiceTests
         UpdateAddressRequest request = null!;
 
         // Act
-        Func<Task> act = () => _service.UpdateAsync(address.Id, request, CancellationToken.None);
+        Func<Task> act = () => _service.UpdateAsync(address.Id, expectedVersion: 1, request, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("request");
@@ -599,31 +693,61 @@ public class AddressServiceTests
     }
 
     [Test]
-    public async Task DeleteAsync_KnownId_DeletesAddressAndReturnsTrue()
+    public async Task DeleteAsync_KnownId_DeletesAddressAndReturnsSuccess()
     {
         // Arrange
         Address address = CreateStoredAddress();
 
         // Act
-        bool deleted = await _service.DeleteAsync(address.Id, CancellationToken.None);
+        ChangeStatus status = await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
 
         // Assert
-        deleted.Should().BeTrue();
+        status.Should().Be(ChangeStatus.Success);
         await _addressRepository.Received(1).DeleteAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
+    [TestCase(1L)]
+    [TestCase(7L)]
+    [TestCase(null)]
+    public async Task DeleteAsync_KnownId_PassesExpectedVersionToRepository(long? expectedVersion)
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+
+        // Act
+        await _service.DeleteAsync(address.Id, expectedVersion, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).DeleteAsync(address, expectedVersion, Arg.Any<CancellationToken>());
+    }
+
     [Test]
-    public async Task DeleteAsync_UnknownId_ReturnsFalseAndDeletesNothing()
+    public async Task DeleteAsync_UnknownId_ReturnsNotFoundAndDeletesNothing()
     {
         // Arrange
         var id = Guid.CreateVersion7();
 
         // Act
-        bool deleted = await _service.DeleteAsync(id, CancellationToken.None);
+        ChangeStatus status = await _service.DeleteAsync(id, expectedVersion: 1, CancellationToken.None);
 
         // Assert
-        deleted.Should().BeFalse();
+        status.Should().Be(ChangeStatus.NotFound);
         await _addressRepository.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default, default);
+    }
+
+    [TestCase(ChangeStatus.NotFound)]
+    [TestCase(ChangeStatus.VersionMismatch)]
+    public async Task DeleteAsync_RepositoryReportsFailure_ReturnsThisStatus(ChangeStatus repositoryStatus)
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnOnDelete(address, repositoryStatus);
+
+        // Act
+        ChangeStatus status = await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(repositoryStatus);
     }
 
     [Test]
@@ -634,7 +758,7 @@ public class AddressServiceTests
         using var cancellationTokenSource = new CancellationTokenSource();
 
         // Act
-        await _service.DeleteAsync(address.Id, cancellationTokenSource.Token);
+        await _service.DeleteAsync(address.Id, expectedVersion: 1, cancellationTokenSource.Token);
 
         // Assert
         await _addressRepository.Received(1).GetByIdAsync(address.Id, cancellationTokenSource.Token);
@@ -642,13 +766,13 @@ public class AddressServiceTests
     }
 
     [Test]
-    public async Task DeleteAsync_KnownId_LogsDeletedAddress()
+    public async Task DeleteAsync_Deleted_LogsDeletedAddress()
     {
         // Arrange
         Address address = CreateStoredAddress();
 
         // Act
-        await _service.DeleteAsync(address.Id, CancellationToken.None);
+        await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
 
         // Assert
         ShouldHaveLoggedSingle(LogLevel.Information, 6, $"Deleted address {address.Id}", address.Id);
@@ -661,10 +785,47 @@ public class AddressServiceTests
         var id = Guid.CreateVersion7();
 
         // Act
-        await _service.DeleteAsync(id, CancellationToken.None);
+        await _service.DeleteAsync(id, expectedVersion: 1, CancellationToken.None);
 
         // Assert
         ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {id} was not found", id);
+    }
+
+    [Test]
+    public async Task DeleteAsync_RepositoryReportsNotFound_LogsNotFound()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnOnDelete(address, ChangeStatus.NotFound);
+
+        // Act
+        await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {address.Id} was not found", address.Id);
+    }
+
+    [TestCase(1L, "1")]
+    [TestCase(null, "(null)")]
+    public async Task DeleteAsync_RepositoryReportsVersionMismatch_LogsVersionMismatch(
+        long? expectedVersion,
+        string loggedVersion)
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnOnDelete(address, ChangeStatus.VersionMismatch);
+
+        // Act
+        await _service.DeleteAsync(address.Id, expectedVersion, CancellationToken.None);
+
+        // Assert
+        FakeLogRecord record = ShouldHaveLoggedSingle(
+            LogLevel.Information,
+            7,
+            $"Address {address.Id} was not saved: its version differs from the expected version {loggedVersion}");
+        record.GetStructuredStateValue("AddressId").Should().Be(address.Id.ToString());
+        record.GetStructuredStateValue("ExpectedVersion")
+            .Should().Be(expectedVersion?.ToString(CultureInfo.InvariantCulture));
     }
 
     [Test]
@@ -676,12 +837,18 @@ public class AddressServiceTests
             .ThrowsAsync(new OperationCanceledException());
 
         // Act
-        Func<Task> act = () => _service.DeleteAsync(address.Id, CancellationToken.None);
+        Func<Task> act = () => _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<OperationCanceledException>();
         _logger.Collector.Count.Should().Be(0);
     }
+
+    private void ReturnOnUpdate(Address address, ChangeStatus status) =>
+        _addressRepository.UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>()).Returns(status);
+
+    private void ReturnOnDelete(Address address, ChangeStatus status) =>
+        _addressRepository.DeleteAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>()).Returns(status);
 
     /// <summary>
     /// Creates an address with the given values and lets the repository return it for its id. Unknown ids return

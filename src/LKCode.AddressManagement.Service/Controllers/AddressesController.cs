@@ -7,6 +7,7 @@ using FluentValidation.Results;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Extensions;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
@@ -321,9 +322,9 @@ public sealed class AddressesController(
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
-        bool deleted = await _addressService.DeleteAsync(id, cancellationToken);
+        ChangeStatus status = await _addressService.DeleteAsync(id, expectedVersion: null, cancellationToken);
 
-        return deleted ? NoContent() : NotFound();
+        return status == ChangeStatus.Success ? NoContent() : NotFound();
     }
 
     /// <summary>
@@ -351,8 +352,9 @@ public sealed class AddressesController(
             return ValidationProblem(ModelState);
         }
 
-        AddressResponse? address = await _addressService.UpdateAsync(id, sanitizedRequest, cancellationToken);
+        AddressChangeResult result =
+            await _addressService.UpdateAsync(id, expectedVersion: null, sanitizedRequest, cancellationToken);
 
-        return address is null ? NotFound() : Ok(address);
+        return result.IsSuccess ? Ok(result.Address) : NotFound();
     }
 }
