@@ -1,4 +1,5 @@
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
 
@@ -33,6 +34,21 @@ public static class AddressMappingExtensions
             address.UpdatedAt,
             address.Version);
     }
+
+    /// <summary>
+    /// Maps the <paramref name="addressPage"/> to a response with the addresses on the page, the page and the number
+    /// of all addresses and pages.
+    /// </summary>
+    /// <param name="addressPage">The page to map.</param>
+    /// <param name="page">The number of the page, starting at 1.</param>
+    /// <param name="pageSize">The maximum number of addresses on a page, at least 1.</param>
+    /// <returns>The response with the addresses in their order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="addressPage"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="page"/> or <paramref name="pageSize"/> is less than 1.
+    /// </exception>
+    public static AddressListResponse ToListResponse(this AddressPage addressPage, int page, int pageSize) =>
+        throw new NotImplementedException();
 
     /// <summary>
     /// Maps the <paramref name="response"/> to a request that replaces all values of the address with its current

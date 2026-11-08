@@ -54,25 +54,8 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<AddressResponse>> GetListAsync(
-        AddressListQuery query,
-        CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(query);
-
-        string? normalizedCity = string.IsNullOrWhiteSpace(query.City)
-            ? null
-            : _textNormalizer.Normalize(query.City);
-        string? normalizedPostalCode = string.IsNullOrWhiteSpace(query.PostalCode)
-            ? null
-            : _textNormalizer.NormalizePostalCode(query.PostalCode);
-
-        IReadOnlyList<Address> addresses =
-            await _addressRepository.ListAsync(normalizedCity, normalizedPostalCode, cancellationToken);
-        LogAddressesListed(_logger, addresses.Count, normalizedCity, normalizedPostalCode);
-
-        return [.. addresses.Select(address => address.ToResponse())];
-    }
+    public Task<AddressListResponse> GetListAsync(AddressListQuery query, CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 
     /// <inheritdoc />
     public async Task<AddressResponse> CreateAsync(CreateAddressRequest request, CancellationToken cancellationToken)

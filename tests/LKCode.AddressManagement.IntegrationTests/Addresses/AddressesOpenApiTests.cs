@@ -260,11 +260,11 @@ public class AddressesOpenApiTests
         JsonElement responses = GetGetListOperation().GetProperty("responses");
 
         // Assert
-        GetNames(responses).Should().BeEquivalentTo("200", "500");
+        GetNames(responses).Should().BeEquivalentTo("200", "400", "500");
     }
 
     [Test]
-    public void GetListOperation_OkResponse_HasOnlyJsonWithArrayOfAddressResponse()
+    public void GetListOperation_OkResponse_HasOnlyJsonWithAddressListResponse()
     {
         // Act
         JsonElement response = GetGetListOperation().GetProperty("responses").GetProperty("200");
@@ -274,33 +274,51 @@ public class AddressesOpenApiTests
         response.TryGetProperty("headers", out _).Should().BeFalse();
         JsonElement content = response.GetProperty("content");
         GetNames(content).Should().Equal(JsonMediaType);
-        JsonElement schema = content.GetProperty(JsonMediaType).GetProperty("schema");
-        GetTypes(schema).Should().Equal("array");
-        schema.GetProperty("items").GetProperty("$ref").GetString()
-            .Should().Be(SchemaReferencePrefix + "AddressResponse");
+        GetSchemaReference(content.GetProperty(JsonMediaType)).Should().Be(SchemaReferencePrefix + "AddressListResponse");
     }
 
-    [Test]
-    public void GetListOperation_ErrorResponse_HasOnlyProblemDetails()
+    [TestCase("400", "ValidationProblemDetails")]
+    [TestCase("500", "ProblemDetails")]
+    public void GetListOperation_ErrorResponse_HasDescriptionAndOnlyProblemDetailsWithoutHeaders(
+        string statusCode,
+        string schema)
     {
         // Act
-        JsonElement content = GetGetListOperation().GetProperty("responses").GetProperty("500").GetProperty("content");
+        JsonElement response = GetGetListOperation().GetProperty("responses").GetProperty(statusCode);
 
         // Assert
+        response.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        response.TryGetProperty("headers", out _).Should().BeFalse();
+        JsonElement content = response.GetProperty("content");
         GetNames(content).Should().Equal(ProblemDetailsMediaType);
-        GetSchemaReference(content.GetProperty(ProblemDetailsMediaType))
-            .Should().Be(SchemaReferencePrefix + "ProblemDetails");
+        GetSchemaReference(content.GetProperty(ProblemDetailsMediaType)).Should().Be(SchemaReferencePrefix + schema);
     }
 
     [Test]
-    public void GetListOperation_Parameters_AreCityAndPostalCode()
+    public void GetListOperation_Parameters_AreFiltersPageAndSortOrder()
     {
         // Act
         JsonElement parameters = GetGetListOperation().GetProperty("parameters");
 
         // Assert
-        parameters.EnumerateArray().Select(parameter => parameter.GetProperty("name").GetString())
-            .Should().Equal("city", "postalCode");
+        GetParameterNames(parameters)
+            .Should().Equal("city", "postalCode", "page", "pageSize", "sortBy", "sortDirection");
+    }
+
+    [TestCase("page")]
+    [TestCase("pageSize")]
+    [TestCase("sortBy")]
+    [TestCase("sortDirection")]
+    public void GetListOperation_PageOrSortParameter_IsOptionalAndDescribedInQuery(string name)
+    {
+        // Act
+        JsonElement parameter = GetGetListOperation().GetProperty("parameters").EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == name);
+
+        // Assert
+        parameter.GetProperty("in").GetString().Should().Be("query");
+        (parameter.TryGetProperty("required", out JsonElement required) && required.GetBoolean()).Should().BeFalse();
+        parameter.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
     }
 
     [TestCase("city")]

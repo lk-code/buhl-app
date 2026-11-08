@@ -124,6 +124,9 @@ public class ServiceRegistrationTests
         await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
         IAddressService addressService = scope.ServiceProvider.GetRequiredService<IAddressService>();
 
-        return await addressService.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+        AddressListResponse page =
+            await addressService.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+
+        return page.Items;
     }
 }

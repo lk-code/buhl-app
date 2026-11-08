@@ -1,4 +1,5 @@
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
 
 namespace LKCode.AddressManagement.Core.Addresses.Contracts;
@@ -21,15 +22,24 @@ public interface IAddressService
     Task<AddressResponse?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Gets all addresses whose city and postal code contain the values of the <paramref name="query"/>.
+    /// Gets one page of the sorted addresses whose city and postal code contain the filters of the
+    /// <paramref name="query"/>.
     /// </summary>
     /// <param name="query">
-    /// The filters. They are normalized before searching; a <see langword="null"/> or blank filter is ignored.
+    /// The sanitized and validated filters, page and sort order. The filters are normalized before searching; a
+    /// <see langword="null"/> or blank filter is ignored. Missing values of the page and the sort order stand for the
+    /// defaults of <see cref="AddressListConstraints"/>.
     /// </param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
-    /// <returns>The matching addresses in no particular order; an empty list if none matches.</returns>
+    /// <returns>
+    /// The addresses on the page and the number of all matching addresses and pages. The page is empty if none matches
+    /// or it is behind the end. Addresses with the same value of the sort field are sorted by their id in the same
+    /// direction.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="query"/> is <see langword="null"/>.</exception>
-    Task<IReadOnlyList<AddressResponse>> GetListAsync(AddressListQuery query, CancellationToken cancellationToken);
+    /// <exception cref="ArgumentOutOfRangeException">The page or the page size is out of its range.</exception>
+    /// <exception cref="ArgumentException">The sort field or the sort direction is unknown.</exception>
+    Task<AddressListResponse> GetListAsync(AddressListQuery query, CancellationToken cancellationToken);
 
     /// <summary>
     /// Creates a new address and saves it.

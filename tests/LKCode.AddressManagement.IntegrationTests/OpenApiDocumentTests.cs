@@ -198,6 +198,7 @@ public class OpenApiDocumentTests
 
         // Assert
         schemas.Should().BeEquivalentTo(
+            "AddressListResponse",
             "AddressResponse",
             "CreateAddressRequest",
             "UpdateAddressRequest",

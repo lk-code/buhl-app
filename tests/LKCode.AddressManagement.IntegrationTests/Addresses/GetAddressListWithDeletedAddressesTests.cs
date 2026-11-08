@@ -114,8 +114,9 @@ public class GetAddressListWithDeletedAddressesTests
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.ValueKind.Should().Be(JsonValueKind.Array);
-        body.GetArrayLength().Should().Be(0);
+        body.GetProperty("items").GetArrayLength().Should().Be(0);
+        body.GetProperty("totalCount").GetInt32().Should().Be(0);
+        body.GetProperty("totalPages").GetInt32().Should().Be(0);
     }
 
     private static Task<AddressResponse> SeedAsync(
@@ -156,7 +157,9 @@ public class GetAddressListWithDeletedAddressesTests
     {
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (response.Content.Headers.ContentType?.MediaType).Should().Be("application/json");
-        List<AddressResponse>? body = await response.Content.ReadFromJsonAsync<List<AddressResponse>>();
-        body.Should().BeEquivalentTo(expectedCities.Select(city => _activeByCity[city]));
+        AddressListResponse? body = await response.Content.ReadFromJsonAsync<AddressListResponse>();
+        body.Should().NotBeNull();
+        body.Items.Should().BeEquivalentTo(expectedCities.Select(city => _activeByCity[city]));
+        body.TotalCount.Should().Be(expectedCities.Length);
     }
 }

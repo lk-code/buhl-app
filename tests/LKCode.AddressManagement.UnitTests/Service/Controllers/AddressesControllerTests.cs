@@ -38,6 +38,8 @@ public class AddressesControllerTests
         _createdAt,
         1);
 
+    private static readonly AddressListResponse _addressList = new([_address], 2, 1, 3, 3);
+
     private static readonly CreateAddressRequest _validRequest = new(
         "Erika",
         "Mustermann",
@@ -103,6 +105,7 @@ public class AddressesControllerTests
     private IAddressService _addressService = null!;
     private IValidator<CreateAddressRequest> _createAddressValidator = null!;
     private IValidator<UpdateAddressRequest> _updateAddressValidator = null!;
+    private IValidator<AddressListQuery> _addressListQueryValidator = null!;
     private IOptions<JsonOptions> _jsonOptions = null!;
     private AddressesController _controller = null!;
 
@@ -123,11 +126,17 @@ public class AddressesControllerTests
         _updateAddressValidator
             .ValidateAsync(Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValidationResult());
+        _addressListQueryValidator = Substitute.For<IValidator<AddressListQuery>>();
+        _addressListQueryValidator
+            .ValidateAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ValidationResult());
+        _addressService.GetListAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>()).Returns(_addressList);
         _jsonOptions = Options.Create(new JsonOptions());
         _controller = new AddressesController(
             _addressService,
             _createAddressValidator,
             _updateAddressValidator,
+            _addressListQueryValidator,
             _jsonOptions)
         {
             ControllerContext = new ControllerContext
@@ -155,6 +164,7 @@ public class AddressesControllerTests
             addressService,
             _createAddressValidator,
             _updateAddressValidator,
+            _addressListQueryValidator,
             _jsonOptions);
 
         // Assert
@@ -172,6 +182,7 @@ public class AddressesControllerTests
             _addressService,
             createAddressValidator,
             _updateAddressValidator,
+            _addressListQueryValidator,
             _jsonOptions);
 
         // Assert
@@ -189,10 +200,29 @@ public class AddressesControllerTests
             _addressService,
             _createAddressValidator,
             updateAddressValidator,
+            _addressListQueryValidator,
             _jsonOptions);
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("updateAddressValidator");
+    }
+
+    [Test]
+    public void Constructor_NullAddressListQueryValidator_ThrowsArgumentNullException()
+    {
+        // Arrange
+        IValidator<AddressListQuery> addressListQueryValidator = null!;
+
+        // Act
+        Action act = () => _ = new AddressesController(
+            _addressService,
+            _createAddressValidator,
+            _updateAddressValidator,
+            addressListQueryValidator,
+            _jsonOptions);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("addressListQueryValidator");
     }
 
     [Test]
@@ -206,6 +236,7 @@ public class AddressesControllerTests
             _addressService,
             _createAddressValidator,
             _updateAddressValidator,
+            _addressListQueryValidator,
             jsonOptions);
 
         // Assert
@@ -252,53 +283,135 @@ public class AddressesControllerTests
         await _addressService.Received(1).GetByIdAsync(_address.Id, cancellationTokenSource.Token);
     }
 
-    [TestCase("sol", "426")]
-    [TestCase("sol", null)]
-    [TestCase(null, "426")]
-    [TestCase(null, null)]
-    [TestCase(" ", "")]
-    public async Task GetListAsync_Filters_PassesQueryAndCancellationToken(string? city, string? postalCode)
+    [TestCase("sol", "426", 2, 10, "city", "desc")]
+    [TestCase("sol", null, null, null, null, null)]
+    [TestCase(null, "426", 1, 100, "LastName", "ASC")]
+    [TestCase(null, null, null, null, null, null)]
+    [TestCase(null, null, 0, 101, "email", "up")]
+    public async Task GetListAsync_SanitizedParameters_PassesQueryAndCancellationToken(
+        string? city,
+        string? postalCode,
+        int? page,
+        int? pageSize,
+        string? sortBy,
+        string? sortDirection)
     {
         // Arrange
         using var cancellationTokenSource = new CancellationTokenSource();
+        var expectedQuery = new AddressListQuery(city, postalCode, page, pageSize, sortBy, sortDirection);
 
         // Act
-        await _controller.GetListAsync(city, postalCode, cancellationTokenSource.Token);
+        await _controller.GetListAsync(
+            city,
+            postalCode,
+            page,
+            pageSize,
+            sortBy,
+            sortDirection,
+            cancellationTokenSource.Token);
 
         // Assert
-        await _addressService.Received(1)
-            .GetListAsync(new AddressListQuery(city, postalCode), cancellationTokenSource.Token);
+        await _addressListQueryValidator.Received(1).ValidateAsync(expectedQuery, cancellationTokenSource.Token);
+        await _addressService.Received(1).GetListAsync(expectedQuery, cancellationTokenSource.Token);
     }
 
     [Test]
-    public async Task GetListAsync_MatchingAddresses_ReturnsOkWithAddresses()
+    public async Task GetListAsync_UnsanitizedParameters_ValidatesAndPassesSanitizedQuery()
     {
         // Arrange
-        IReadOnlyList<AddressResponse> addresses = [_address, _address with { Id = Guid.CreateVersion7(_createdAt) }];
-        _addressService.GetListAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>()).Returns(addresses);
+        var expectedQuery = new AddressListQuery("sol", null, 2, 10, "City", null);
 
         // Act
-        ActionResult<IReadOnlyList<AddressResponse>> result =
-            await _controller.GetListAsync("Köln", null, CancellationToken.None);
+        await _controller.GetListAsync(" sol ", "  ", 2, 10, "\tCity ", "", CancellationToken.None);
 
         // Assert
-        result.Result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(addresses);
+        await _addressListQueryValidator.Received(1).ValidateAsync(expectedQuery, Arg.Any<CancellationToken>());
+        await _addressService.Received(1).GetListAsync(expectedQuery, Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public async Task GetListAsync_NoMatches_ReturnsOkWithEmptyList()
+    public async Task GetListAsync_ValidQuery_ReturnsOkWithPage()
     {
-        // Arrange
-        IReadOnlyList<AddressResponse> noAddresses = [];
-        _addressService.GetListAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>()).Returns(noAddresses);
-
         // Act
-        ActionResult<IReadOnlyList<AddressResponse>> result =
-            await _controller.GetListAsync("Berlin", null, CancellationToken.None);
+        ActionResult<AddressListResponse> result =
+            await _controller.GetListAsync("Köln", null, 2, 1, "city", "desc", CancellationToken.None);
 
         // Assert
-        result.Result.Should().BeOfType<OkObjectResult>()
-            .Which.Value.Should().BeAssignableTo<IReadOnlyList<AddressResponse>>().Which.Should().BeEmpty();
+        result.Result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(_addressList);
+    }
+
+    [Test]
+    public async Task GetListAsync_InvalidQuery_ReturnsValidationProblemWithParameterNames()
+    {
+        // Arrange
+        ReturnListQueryValidationErrors(
+            new ValidationFailure("Page", "'Page' must be greater than or equal to '1'."),
+            new ValidationFailure("PageSize", "'Page Size' must be between 1 and 100. You entered 0."),
+            new ValidationFailure("SortBy", "'Sort By' must be one of: lastName."),
+            new ValidationFailure("SortDirection", "'Sort Direction' must be one of: asc, desc."));
+
+        // Act
+        ActionResult<AddressListResponse> result =
+            await _controller.GetListAsync(null, null, 0, 0, "email", "up", CancellationToken.None);
+
+        // Assert
+        AssertValidationProblem(Convert(result), new Dictionary<string, string[]>
+        {
+            ["page"] = ["'Page' must be greater than or equal to '1'."],
+            ["pageSize"] = ["'Page Size' must be between 1 and 100. You entered 0."],
+            ["sortBy"] = ["'Sort By' must be one of: lastName."],
+            ["sortDirection"] = ["'Sort Direction' must be one of: asc, desc."],
+        });
+    }
+
+    [Test]
+    public async Task GetListAsync_InvalidQuery_DoesNotListAddresses()
+    {
+        // Arrange
+        ReturnListQueryValidationErrors(new ValidationFailure("PageSize", "'Page Size' must be between 1 and 100."));
+
+        // Act
+        await _controller.GetListAsync(null, null, null, 101, null, null, CancellationToken.None);
+
+        // Assert
+        await _addressService.DidNotReceiveWithAnyArgs().GetListAsync(default!, default);
+    }
+
+    [Test]
+    public async Task GetListAsync_BindingErrorAndInvalidQuery_ReturnsValidationProblemWithAllErrors()
+    {
+        // Arrange
+        _controller.ModelState.AddModelError("page", "The value 'abc' is not valid for page.");
+        ReturnListQueryValidationErrors(new ValidationFailure("SortBy", "'Sort By' must be one of: lastName."));
+
+        // Act
+        ActionResult<AddressListResponse> result =
+            await _controller.GetListAsync(null, null, null, null, "email", null, CancellationToken.None);
+
+        // Assert
+        AssertValidationProblem(Convert(result), new Dictionary<string, string[]>
+        {
+            ["page"] = ["The value 'abc' is not valid for page."],
+            ["sortBy"] = ["'Sort By' must be one of: lastName."],
+        });
+    }
+
+    [Test]
+    public async Task GetListAsync_BindingErrorOnly_ReturnsValidationProblemWithoutListingAddresses()
+    {
+        // Arrange
+        _controller.ModelState.AddModelError("pageSize", "The value '1.5' is not valid for pageSize.");
+
+        // Act
+        ActionResult<AddressListResponse> result =
+            await _controller.GetListAsync(null, null, null, null, null, null, CancellationToken.None);
+
+        // Assert
+        AssertValidationProblem(Convert(result), new Dictionary<string, string[]>
+        {
+            ["pageSize"] = ["The value '1.5' is not valid for pageSize."],
+        });
+        await _addressService.DidNotReceiveWithAnyArgs().GetListAsync(default!, default);
     }
 
     [Test]
@@ -1140,6 +1253,25 @@ public class AddressesControllerTests
         _updateAddressValidator
             .ValidateAsync(Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValidationResult(failures));
+    }
+
+    private void ReturnListQueryValidationErrors(params ValidationFailure[] failures)
+    {
+        _addressListQueryValidator
+            .ValidateAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>())
+            .Returns(new ValidationResult(failures));
+    }
+
+    private static IActionResult Convert(ActionResult<AddressListResponse> result) =>
+        ((IConvertToActionResult)result).Convert();
+
+    private static void AssertValidationProblem(IActionResult? result, Dictionary<string, string[]> expectedErrors)
+    {
+        ObjectResult objectResult = result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        ValidationProblemDetails problem = objectResult.Value.Should().BeOfType<ValidationProblemDetails>().Which;
+        problem.Status.Should().Be(StatusCodes.Status400BadRequest);
+        problem.Errors.Should().BeEquivalentTo(expectedErrors);
     }
 
     private static IActionResult Convert(ActionResult<AddressResponse> result) =>

@@ -8,7 +8,8 @@ namespace LKCode.AddressManagement.IntegrationTests.Addresses;
 
 /// <summary>
 /// Tests listing addresses with the optional filters by city and postal code. All tests read the same addresses,
-/// which are created once for the fixture.
+/// which are created once for the fixture and fit on the first page. Paging and sorting are tested by
+/// <see cref="GetAddressListPagingTests"/>.
 /// </summary>
 public class GetAddressListTests
 {
@@ -57,7 +58,7 @@ public class GetAddressListTests
     }
 
     [Test]
-    public async Task GetListAsync_NoAddresses_Returns200WithEmptyArray()
+    public async Task GetListAsync_NoAddresses_Returns200WithEmptyFirstPage()
     {
         // Arrange
         await using var factory = new AddressManagementWebApplicationFactory();
@@ -70,8 +71,24 @@ public class GetAddressListTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (response.Content.Headers.ContentType?.MediaType).Should().Be("application/json");
         JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.ValueKind.Should().Be(JsonValueKind.Array);
-        body.GetArrayLength().Should().Be(0);
+        body.GetProperty("items").ValueKind.Should().Be(JsonValueKind.Array);
+        body.GetProperty("items").GetArrayLength().Should().Be(0);
+        body.GetProperty("page").GetInt32().Should().Be(1);
+        body.GetProperty("pageSize").GetInt32().Should().Be(20);
+        body.GetProperty("totalCount").GetInt32().Should().Be(0);
+        body.GetProperty("totalPages").GetInt32().Should().Be(0);
+    }
+
+    [Test]
+    public async Task GetListAsync_AnyQuery_ReturnsPageWithPropertiesInCamelCase()
+    {
+        // Act
+        using HttpResponseMessage response = await _client.GetAsync(Path);
+
+        // Assert
+        JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.EnumerateObject().Select(property => property.Name)
+            .Should().Equal("items", "page", "pageSize", "totalCount", "totalPages");
     }
 
     [Test]
@@ -82,7 +99,7 @@ public class GetAddressListTests
 
         // Assert
         JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        body.EnumerateArray().Should().ContainSingle()
+        body.GetProperty("items").EnumerateArray().Should().ContainSingle()
             .Which.EnumerateObject().Select(property => property.Name).Should().Equal(
                 "id",
                 "firstName",
@@ -278,7 +295,9 @@ public class GetAddressListTests
     {
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (response.Content.Headers.ContentType?.MediaType).Should().Be("application/json");
-        List<AddressResponse>? body = await response.Content.ReadFromJsonAsync<List<AddressResponse>>();
-        body.Should().BeEquivalentTo(expectedCities.Select(city => _addressesByCity[city]));
+        AddressListResponse? body = await response.Content.ReadFromJsonAsync<AddressListResponse>();
+        body.Should().NotBeNull();
+        body.Items.Should().BeEquivalentTo(expectedCities.Select(city => _addressesByCity[city]));
+        body.TotalCount.Should().Be(expectedCities.Length);
     }
 }

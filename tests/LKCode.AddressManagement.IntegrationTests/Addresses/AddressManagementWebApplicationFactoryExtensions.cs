@@ -1,5 +1,6 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Core.Addresses.Mappings;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain.Addresses;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -37,15 +38,19 @@ public static class AddressManagementWebApplicationFactoryExtensions
         return await addressService.GetByIdAsync(id, CancellationToken.None);
     }
 
+    /// <summary>
+    /// Reads all stored addresses that are not deleted directly from the database, without paging.
+    /// </summary>
     public static async Task<IReadOnlyList<AddressResponse>> ListAddressesAsync(
         this WebApplicationFactory<Program> factory)
     {
         ArgumentNullException.ThrowIfNull(factory);
 
         await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
-        IAddressService addressService = scope.ServiceProvider.GetRequiredService<IAddressService>();
+        AddressDbContext dbContext = scope.ServiceProvider.GetRequiredService<AddressDbContext>();
+        List<Address> addresses = await dbContext.Addresses.AsNoTracking().ToListAsync();
 
-        return await addressService.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+        return [.. addresses.Select(address => address.ToResponse())];
     }
 
     /// <summary>
