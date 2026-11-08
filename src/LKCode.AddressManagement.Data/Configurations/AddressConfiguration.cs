@@ -10,7 +10,8 @@ namespace LKCode.AddressManagement.Data.Configurations;
 /// <remarks>
 /// The maximum lengths come from <see cref="AddressConstraints"/>. <see cref="Address.NormalizedPostalCode"/> is never
 /// longer than <see cref="Address.PostalCode"/>. <see cref="Address.NormalizedCity"/> has no maximum length because
-/// the normalization can lengthen a value (e.g. <c>ß</c> becomes <c>ss</c>).
+/// the normalization can lengthen a value (e.g. <c>ß</c> becomes <c>ss</c>). <see cref="Address.Version"/> is the
+/// concurrency token that detects concurrent changes.
 /// </remarks>
 public sealed class AddressConfiguration : IEntityTypeConfiguration<Address>
 {
@@ -42,6 +43,10 @@ public sealed class AddressConfiguration : IEntityTypeConfiguration<Address>
 
         builder.Property(address => address.CreatedAt).IsRequired();
         builder.Property(address => address.UpdatedAt).IsRequired();
+
+        // The domain increases the version with every change; saving a change succeeds only if the stored version
+        // still equals the original value of the tracked entry.
+        builder.Property(address => address.Version).IsRequired().IsConcurrencyToken().ValueGeneratedNever();
 
         builder.HasIndex(address => address.NormalizedCity);
         builder.HasIndex(address => address.NormalizedPostalCode);

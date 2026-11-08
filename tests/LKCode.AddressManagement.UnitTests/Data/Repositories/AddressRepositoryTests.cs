@@ -235,38 +235,40 @@ public class AddressRepositoryTests
     }
 
     [Test]
-    public async Task UpdateAsync_DetachedAddressChanged_PersistsAllChanges()
+    public async Task UpdateAsync_DetachedAddressChanged_ThrowsDbUpdateConcurrencyExceptionAndSavesNothing()
     {
         // Arrange
         Address address = CreateAddress(AddressInput.Valid);
         await SeedAsync(address);
-        _timeProvider.Advance(TimeSpan.FromMinutes(5));
         UpdateAddress(address, AddressInput.Changed);
         await using AddressDbContext context = CreateContext();
         var repository = new AddressRepository(context);
 
         // Act
-        await repository.UpdateAsync(address, CancellationToken.None);
+        Func<Task> act = () => repository.UpdateAsync(address, CancellationToken.None);
 
         // Assert
-        IReadOnlyList<Address> stored = await LoadAllAsync();
-        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(address);
+        await act.Should().ThrowAsync<DbUpdateConcurrencyException>();
+        Address stored = (await LoadAllAsync()).Should().ContainSingle().Subject;
+        AddressInput.From(stored).Should().Be(AddressInput.Valid);
+        stored.Version.Should().Be(1);
     }
 
     [Test]
     public async Task UpdateAsync_ChangedAddress_LeavesOtherAddressesUnchanged()
     {
         // Arrange
-        Address address = CreateAddress(AddressInput.Valid);
+        Address original = CreateAddress(AddressInput.Valid);
         Address other = CreateAddress(AddressInput.Valid);
-        await SeedAsync(address, other);
-        _timeProvider.Advance(TimeSpan.FromMinutes(5));
-        UpdateAddress(address, AddressInput.Changed);
+        await SeedAsync(original, other);
         await using AddressDbContext context = CreateContext();
         var repository = new AddressRepository(context);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        _timeProvider.Advance(TimeSpan.FromMinutes(5));
+        UpdateAddress(address!, AddressInput.Changed);
 
         // Act
-        await repository.UpdateAsync(address, CancellationToken.None);
+        await repository.UpdateAsync(address!, CancellationToken.None);
 
         // Assert
         IReadOnlyList<Address> stored = await LoadAllAsync();
