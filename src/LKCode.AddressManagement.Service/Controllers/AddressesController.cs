@@ -202,19 +202,7 @@ public sealed class AddressesController(
     {
         ArgumentNullException.ThrowIfNull(request);
 
-        UpdateAddressRequest sanitizedRequest = request.Sanitize();
-        ValidationResult validationResult =
-            await _updateAddressValidator.ValidateAsync(sanitizedRequest, cancellationToken);
-        if (!validationResult.IsValid)
-        {
-            ModelState.AddValidationErrors(validationResult, _jsonNamingPolicy);
-
-            return ValidationProblem(ModelState);
-        }
-
-        AddressResponse? address = await _addressService.UpdateAsync(id, sanitizedRequest, cancellationToken);
-
-        return address is null ? NotFound() : Ok(address);
+        return await SanitizeValidateAndUpdateAsync(id, request, cancellationToken);
     }
 
     /// <summary>
@@ -241,5 +229,35 @@ public sealed class AddressesController(
         bool deleted = await _addressService.DeleteAsync(id, cancellationToken);
 
         return deleted ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Sanitizes and validates the new values of an address and replaces the values of the address with them.
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="request">The new values of the address, not yet sanitized.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>
+    /// <c>200 OK</c> with the changed address, <c>400 Bad Request</c> with all validation errors, or
+    /// <c>404 Not Found</c> if there is no address with the id.
+    /// </returns>
+    private async Task<ActionResult<AddressResponse>> SanitizeValidateAndUpdateAsync(
+        Guid id,
+        UpdateAddressRequest request,
+        CancellationToken cancellationToken)
+    {
+        UpdateAddressRequest sanitizedRequest = request.Sanitize();
+        ValidationResult validationResult =
+            await _updateAddressValidator.ValidateAsync(sanitizedRequest, cancellationToken);
+        if (!validationResult.IsValid)
+        {
+            ModelState.AddValidationErrors(validationResult, _jsonNamingPolicy);
+
+            return ValidationProblem(ModelState);
+        }
+
+        AddressResponse? address = await _addressService.UpdateAsync(id, sanitizedRequest, cancellationToken);
+
+        return address is null ? NotFound() : Ok(address);
     }
 }
