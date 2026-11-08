@@ -13,8 +13,12 @@ builder.Services
 
 // System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used.
 builder.Services.AddControllers();
+builder.Services.AddProblemDetails();
 
 WebApplication app = builder.Build();
+
+// Writes Problem Details for error responses without a body, e.g. 404 for an unknown route.
+app.UseStatusCodePages();
 
 app.MapControllers();
 
