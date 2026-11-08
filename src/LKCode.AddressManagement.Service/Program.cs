@@ -1,8 +1,10 @@
 using System.Globalization;
+using FluentValidation;
 using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
+using LKCode.AddressManagement.Service.OpenApiTransformers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Scalar.AspNetCore;
 using Serilog;
@@ -37,17 +39,31 @@ builder.Services.AddSerilog(
     },
     preserveStaticLogger: true);
 
+// The validation messages are part of the Problem Details and therefore always English. FluentValidation would
+// otherwise translate its default messages into the culture of the server.
+ValidatorOptions.Global.LanguageManager.Enabled = false;
+
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services
     .AddDomain()
     .AddCoreAddresses()
     .AddData(builder.Configuration);
 
-// System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used.
-builder.Services.AddControllers();
+// System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used. MVC does not treat
+// non-nullable properties as implicitly required: requests are sanitized and then validated completely by
+// FluentValidation, so that all field errors are reported together and blank values are trimmed first. Errors in
+// the JSON of a request only report the path with a generic message; the messages of System.Text.Json would expose
+// internal type names.
+builder.Services
+    .AddControllers(options => options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true)
+    .AddJsonOptions(options => options.AllowInputFormatterExceptionMessages = false);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options =>
+{
+    options.AddSchemaTransformer<AddressSchemaTransformer>();
+    options.AddOperationTransformer<LocationHeaderOperationTransformer>();
+});
 
 WebApplication app = builder.Build();
 
