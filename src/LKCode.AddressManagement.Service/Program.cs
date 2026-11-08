@@ -62,6 +62,7 @@ builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 builder.Services.AddOpenApi(options =>
 {
     options.AddSchemaTransformer<AddressSchemaTransformer>();
+    options.AddSchemaTransformer<AddressPatchDocumentSchemaTransformer>();
     options.AddSchemaTransformer<ProblemDetailsSchemaTransformer>();
     options.AddOperationTransformer<LocationHeaderOperationTransformer>();
 });

@@ -192,9 +192,10 @@ public class AddressPatchDocumentSchemaTransformerTests
         // Arrange
         OpenApiSchema schema = CreateSchema();
         string before = await SerializeAsync(schema);
+        OpenApiSchemaTransformerContext context = CreateContext(JsonSerializerOptions.Web, type);
 
         // Act
-        await _transformer.TransformAsync(schema, CreateContext(JsonSerializerOptions.Web, type), CancellationToken.None);
+        await _transformer.TransformAsync(schema, context, CancellationToken.None);
 
         // Assert
         (await SerializeAsync(schema)).Should().Be(before);
