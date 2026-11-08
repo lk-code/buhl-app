@@ -1,4 +1,5 @@
 using System.Globalization;
+using FluentValidation;
 using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
@@ -37,6 +38,10 @@ builder.Services.AddSerilog(
         }
     },
     preserveStaticLogger: true);
+
+// The validation messages are part of the Problem Details and therefore always English. FluentValidation would
+// otherwise translate its default messages into the culture of the server.
+ValidatorOptions.Global.LanguageManager.Enabled = false;
 
 builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services
