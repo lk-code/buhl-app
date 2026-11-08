@@ -1,6 +1,7 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
@@ -54,24 +55,24 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<AddressResponse>> GetListAsync(
-        AddressListQuery query,
-        CancellationToken cancellationToken)
+    public async Task<AddressListResponse> GetListAsync(AddressListQuery query, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(query);
 
-        string? normalizedCity = string.IsNullOrWhiteSpace(query.City)
-            ? null
-            : _textNormalizer.Normalize(query.City);
-        string? normalizedPostalCode = string.IsNullOrWhiteSpace(query.PostalCode)
-            ? null
-            : _textNormalizer.NormalizePostalCode(query.PostalCode);
+        AddressListCriteria criteria = ToCriteria(query);
+        AddressPage page = await _addressRepository.ListAsync(criteria, cancellationToken);
+        LogAddressesListed(
+            _logger,
+            page.Addresses.Count,
+            page.TotalCount,
+            criteria.Page,
+            criteria.PageSize,
+            criteria.SortBy,
+            criteria.SortDirection,
+            criteria.NormalizedCity,
+            criteria.NormalizedPostalCode);
 
-        IReadOnlyList<Address> addresses =
-            await _addressRepository.ListAsync(normalizedCity, normalizedPostalCode, cancellationToken);
-        LogAddressesListed(_logger, addresses.Count, normalizedCity, normalizedPostalCode);
-
-        return [.. addresses.Select(address => address.ToResponse())];
+        return page.ToListResponse(criteria.Page, criteria.PageSize);
     }
 
     /// <inheritdoc />
@@ -146,6 +147,43 @@ public sealed partial class AddressService(
         return status;
     }
 
+    /// <summary>
+    /// Normalizes the filters of the <paramref name="query"/> and replaces its missing or blank values with the
+    /// defaults of <see cref="AddressListConstraints"/>.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">The page or the page size is out of its range.</exception>
+    /// <exception cref="ArgumentException">The sort field or the sort direction is unknown.</exception>
+    private AddressListCriteria ToCriteria(AddressListQuery query)
+    {
+        int page = query.Page ?? AddressListConstraints.DefaultPage;
+        int pageSize = query.PageSize ?? AddressListConstraints.DefaultPageSize;
+        ArgumentOutOfRangeException.ThrowIfLessThan(page, AddressListConstraints.MinPage, nameof(query));
+        ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, AddressListConstraints.MinPageSize, nameof(query));
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(pageSize, AddressListConstraints.MaxPageSize, nameof(query));
+
+        AddressSortField sortBy = AddressListConstraints.DefaultSortBy;
+        if (!string.IsNullOrWhiteSpace(query.SortBy) && !AddressSortFields.TryParse(query.SortBy, out sortBy))
+        {
+            throw new ArgumentException($"The sort field '{query.SortBy}' is unknown.", nameof(query));
+        }
+
+        SortDirection sortDirection = AddressListConstraints.DefaultSortDirection;
+        if (!string.IsNullOrWhiteSpace(query.SortDirection)
+            && !SortDirections.TryParse(query.SortDirection, out sortDirection))
+        {
+            throw new ArgumentException($"The sort direction '{query.SortDirection}' is unknown.", nameof(query));
+        }
+
+        string? normalizedCity = string.IsNullOrWhiteSpace(query.City)
+            ? null
+            : _textNormalizer.Normalize(query.City);
+        string? normalizedPostalCode = string.IsNullOrWhiteSpace(query.PostalCode)
+            ? null
+            : _textNormalizer.NormalizePostalCode(query.PostalCode);
+
+        return new AddressListCriteria(normalizedCity, normalizedPostalCode, sortBy, sortDirection, page, pageSize);
+    }
+
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Created address {AddressId}")]
     private static partial void LogAddressCreated(ILogger logger, Guid addressId);
 
@@ -158,10 +196,16 @@ public sealed partial class AddressService(
     [LoggerMessage(
         EventId = 4,
         Level = LogLevel.Debug,
-        Message = "Listed {Count} addresses for city {NormalizedCity} and postal code {NormalizedPostalCode}")]
+        Message = "Listed {Count} of {TotalCount} addresses on page {Page} of size {PageSize} sorted by {SortBy} "
+            + "{SortDirection} for city {NormalizedCity} and postal code {NormalizedPostalCode}")]
     private static partial void LogAddressesListed(
         ILogger logger,
         int count,
+        int totalCount,
+        int page,
+        int pageSize,
+        AddressSortField sortBy,
+        SortDirection sortDirection,
         string? normalizedCity,
         string? normalizedPostalCode);
 

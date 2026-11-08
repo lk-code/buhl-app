@@ -1,4 +1,5 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Data.Repositories;
 using LKCode.AddressManagement.Domain.Addresses;
@@ -18,11 +19,8 @@ public sealed class RendezvousAddressRepository(AddressRepository inner, Rendezv
     public Task<Address?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
         inner.GetByIdAsync(id, cancellationToken);
 
-    public Task<IReadOnlyList<Address>> ListAsync(
-        string? normalizedCity,
-        string? normalizedPostalCode,
-        CancellationToken cancellationToken) =>
-        inner.ListAsync(normalizedCity, normalizedPostalCode, cancellationToken);
+    public Task<AddressPage> ListAsync(AddressListCriteria criteria, CancellationToken cancellationToken) =>
+        inner.ListAsync(criteria, cancellationToken);
 
     public Task AddAsync(Address address, CancellationToken cancellationToken) =>
         inner.AddAsync(address, cancellationToken);

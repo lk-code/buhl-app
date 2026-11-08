@@ -1,3 +1,4 @@
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 
@@ -20,27 +21,27 @@ public interface IAddressRepository
     Task<Address?> GetByIdAsync(Guid id, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Loads all addresses whose normalized city and normalized postal code contain the given values.
+    /// Loads one page of the sorted addresses whose normalized city and normalized postal code contain the filters
+    /// of the <paramref name="criteria"/>, and counts all of them.
     /// </summary>
-    /// <param name="normalizedCity">
-    /// The normalized part of the city to search for, or <see langword="null"/>, empty or whitespace to ignore the
-    /// city.
-    /// </param>
-    /// <param name="normalizedPostalCode">
-    /// The normalized part of the postal code to search for, or <see langword="null"/>, empty or whitespace to ignore
-    /// the postal code.
-    /// </param>
+    /// <param name="criteria">The filters, the sort order and the page.</param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
-    /// <returns>The matching addresses in no particular order; an empty list if none matches.</returns>
+    /// <returns>
+    /// The addresses on the page and the number of all matching addresses. The page is empty if it is behind the
+    /// end.
+    /// </returns>
     /// <remarks>
-    /// The filter values are compared with <see cref="Address.NormalizedCity"/> and
-    /// <see cref="Address.NormalizedPostalCode"/> and must already be normalized in the same way. Both filters must
-    /// match. Deleted addresses are never returned.
+    /// The filter values must already be normalized like <see cref="Address.NormalizedCity"/> and
+    /// <see cref="Address.NormalizedPostalCode"/>; both filters must match. Addresses with the same value of the sort
+    /// field are sorted by their id in the same direction, so that the order is stable. Deleted addresses are neither
+    /// returned nor counted. Only the addresses on the page are loaded.
     /// </remarks>
-    Task<IReadOnlyList<Address>> ListAsync(
-        string? normalizedCity,
-        string? normalizedPostalCode,
-        CancellationToken cancellationToken);
+    /// <exception cref="ArgumentNullException"><paramref name="criteria"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The page or the page size of the <paramref name="criteria"/> is less than 1, or its sort field or direction is
+    /// not defined.
+    /// </exception>
+    Task<AddressPage> ListAsync(AddressListCriteria criteria, CancellationToken cancellationToken);
 
     /// <summary>
     /// Adds a new address and saves it.

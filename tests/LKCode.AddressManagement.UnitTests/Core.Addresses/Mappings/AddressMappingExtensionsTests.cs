@@ -1,6 +1,7 @@
 using AwesomeAssertions;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
 using LKCode.AddressManagement.UnitTests.Domain.Addresses;
@@ -345,6 +346,105 @@ public class AddressMappingExtensionsTests
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("timeProvider");
+    }
+
+    [Test]
+    public void ToListResponse_Page_MapsAddressesInOrderWithPageAndCounts()
+    {
+        // Arrange
+        Address first = CreateAddress(AddressInput.Changed);
+        Address second = CreateAddress(AddressInput.Valid);
+        var addressPage = new AddressPage([first, second], 7);
+
+        // Act
+        AddressListResponse response = addressPage.ToListResponse(2, 2);
+
+        // Assert
+        response.Items.Should().Equal(first.ToResponse(), second.ToResponse());
+        response.Page.Should().Be(2);
+        response.PageSize.Should().Be(2);
+        response.TotalCount.Should().Be(7);
+        response.TotalPages.Should().Be(4);
+    }
+
+    [TestCase(0, 20, 0)]
+    [TestCase(1, 20, 1)]
+    [TestCase(19, 20, 1)]
+    [TestCase(20, 20, 1)]
+    [TestCase(21, 20, 2)]
+    [TestCase(25, 1, 25)]
+    [TestCase(100, 100, 1)]
+    [TestCase(101, 100, 2)]
+    [TestCase(int.MaxValue, 1, int.MaxValue)]
+    [TestCase(int.MaxValue, 100, 21_474_837)]
+    [TestCase(int.MaxValue, int.MaxValue, 1)]
+    public void ToListResponse_TotalCount_ReturnsNumberOfPagesRoundedUp(
+        int totalCount,
+        int pageSize,
+        int expectedTotalPages)
+    {
+        // Arrange
+        var addressPage = new AddressPage([], totalCount);
+
+        // Act
+        AddressListResponse response = addressPage.ToListResponse(1, pageSize);
+
+        // Assert
+        response.TotalPages.Should().Be(expectedTotalPages);
+    }
+
+    [Test]
+    public void ToListResponse_PageBehindEnd_KeepsRequestedPageWithoutItems()
+    {
+        // Arrange
+        var addressPage = new AddressPage([], 5);
+
+        // Act
+        AddressListResponse response = addressPage.ToListResponse(9, 10);
+
+        // Assert
+        response.Should().BeEquivalentTo(new AddressListResponse([], 9, 10, 5, 1));
+    }
+
+    [Test]
+    public void ToListResponse_NullPage_ThrowsArgumentNullException()
+    {
+        // Arrange
+        AddressPage addressPage = null!;
+
+        // Act
+        Action act = () => addressPage.ToListResponse(1, 20);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("addressPage");
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void ToListResponse_PageBelowOne_ThrowsArgumentOutOfRangeException(int invalidPage)
+    {
+        // Arrange
+        var addressPage = new AddressPage([], 0);
+
+        // Act
+        Action act = () => addressPage.ToListResponse(invalidPage, 20);
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("page");
+    }
+
+    [TestCase(0)]
+    [TestCase(-1)]
+    public void ToListResponse_PageSizeBelowOne_ThrowsArgumentOutOfRangeException(int invalidPageSize)
+    {
+        // Arrange
+        var addressPage = new AddressPage([], 0);
+
+        // Act
+        Action act = () => addressPage.ToListResponse(1, invalidPageSize);
+
+        // Assert
+        act.Should().Throw<ArgumentOutOfRangeException>().WithParameterName("pageSize");
     }
 
     private Address CreateAddress(AddressInput input) => Address.Create(

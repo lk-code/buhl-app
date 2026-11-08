@@ -76,11 +76,13 @@ builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 builder.Services.AddOpenApi(options =>
 {
     options.AddSchemaTransformer<AddressSchemaTransformer>();
+    options.AddSchemaTransformer<AddressListResponseSchemaTransformer>();
     options.AddSchemaTransformer<AddressPatchDocumentSchemaTransformer>();
     options.AddSchemaTransformer<ProblemDetailsSchemaTransformer>();
     options.AddOperationTransformer<LocationHeaderOperationTransformer>();
     options.AddOperationTransformer<ETagHeaderOperationTransformer>();
     options.AddOperationTransformer<IfMatchHeaderOperationTransformer>();
+    options.AddOperationTransformer<AddressListParametersOperationTransformer>();
 });
 
 WebApplication app = builder.Build();

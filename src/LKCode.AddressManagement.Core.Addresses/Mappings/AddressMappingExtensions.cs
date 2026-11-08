@@ -1,11 +1,14 @@
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Core.Addresses.Queries;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
 
 namespace LKCode.AddressManagement.Core.Addresses.Mappings;
 
 /// <summary>
-/// Maps between the address requests and responses and the entity <see cref="Address"/>.
+/// Maps between the address requests and responses and the entity <see cref="Address"/>, and from a page of addresses
+/// to the list response.
 /// </summary>
 public static class AddressMappingExtensions
 {
@@ -32,6 +35,36 @@ public static class AddressMappingExtensions
             address.CreatedAt,
             address.UpdatedAt,
             address.Version);
+    }
+
+    /// <summary>
+    /// Maps the <paramref name="addressPage"/> to a response with the addresses on the page, the page and the number
+    /// of all addresses and pages.
+    /// </summary>
+    /// <param name="addressPage">The page to map.</param>
+    /// <param name="page">The number of the page, starting at 1.</param>
+    /// <param name="pageSize">The maximum number of addresses on a page, at least 1.</param>
+    /// <returns>The response with the addresses in their order.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="addressPage"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="page"/> or <paramref name="pageSize"/> is less than 1.
+    /// </exception>
+    public static AddressListResponse ToListResponse(this AddressPage addressPage, int page, int pageSize)
+    {
+        ArgumentNullException.ThrowIfNull(addressPage);
+        ArgumentOutOfRangeException.ThrowIfLessThan(page, AddressListConstraints.MinPage);
+        ArgumentOutOfRangeException.ThrowIfLessThan(pageSize, AddressListConstraints.MinPageSize);
+
+        // Rounded up without adding to the count, which could overflow.
+        int totalCount = addressPage.TotalCount;
+        int totalPages = (totalCount / pageSize) + (totalCount % pageSize == 0 ? 0 : 1);
+
+        return new AddressListResponse(
+            [.. addressPage.Addresses.Select(address => address.ToResponse())],
+            page,
+            pageSize,
+            totalCount,
+            totalPages);
     }
 
     /// <summary>

@@ -4,6 +4,7 @@ using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
@@ -29,6 +30,7 @@ public class AddressServiceTests
     public void SetUp()
     {
         _addressRepository = Substitute.For<IAddressRepository>();
+        ReturnPage(new AddressPage([], 0));
         _textNormalizer = Substitute.For<ITextNormalizer>();
         _textNormalizer.Normalize(Arg.Any<string>()).Returns(call => "city:" + call.Arg<string>());
         _textNormalizer.NormalizePostalCode(Arg.Any<string>()).Returns(call => "postal:" + call.Arg<string>());
@@ -286,6 +288,18 @@ public class AddressServiceTests
     }
 
     [Test]
+    public async Task GetListAsync_EmptyQuery_PassesDefaultCriteria()
+    {
+        // Act
+        await _service.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).ListAsync(
+            new AddressListCriteria(null, null, AddressSortField.LastName, SortDirection.Ascending, 1, 20),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
     public async Task GetListAsync_CityAndPostalCode_PassesNormalizedFilters()
     {
         // Arrange
@@ -295,7 +309,10 @@ public class AddressServiceTests
         await _service.GetListAsync(query, CancellationToken.None);
 
         // Assert
-        await _addressRepository.Received(1).ListAsync("city:Köln", "postal:51 147", Arg.Any<CancellationToken>());
+        await _addressRepository.Received(1).ListAsync(
+            Arg.Is<AddressListCriteria>(criteria =>
+                criteria.NormalizedCity == "city:Köln" && criteria.NormalizedPostalCode == "postal:51 147"),
+            Arg.Any<CancellationToken>());
     }
 
     [TestCase("Köln", null, "city:Köln", null)]
@@ -313,8 +330,10 @@ public class AddressServiceTests
         await _service.GetListAsync(query, CancellationToken.None);
 
         // Assert
-        await _addressRepository.Received(1)
-            .ListAsync(expectedCity, expectedPostalCode, Arg.Any<CancellationToken>());
+        await _addressRepository.Received(1).ListAsync(
+            Arg.Is<AddressListCriteria>(criteria =>
+                criteria.NormalizedCity == expectedCity && criteria.NormalizedPostalCode == expectedPostalCode),
+            Arg.Any<CancellationToken>());
     }
 
     [TestCase(null)]
@@ -330,39 +349,138 @@ public class AddressServiceTests
         await _service.GetListAsync(query, CancellationToken.None);
 
         // Assert
-        await _addressRepository.Received(1).ListAsync(null, null, Arg.Any<CancellationToken>());
+        await _addressRepository.Received(1).ListAsync(
+            Arg.Is<AddressListCriteria>(criteria =>
+                criteria.NormalizedCity == null && criteria.NormalizedPostalCode == null),
+            Arg.Any<CancellationToken>());
         _textNormalizer.DidNotReceiveWithAnyArgs().Normalize(default!);
         _textNormalizer.DidNotReceiveWithAnyArgs().NormalizePostalCode(default!);
     }
 
+    [TestCase("lastName", AddressSortField.LastName)]
+    [TestCase("firstName", AddressSortField.FirstName)]
+    [TestCase("city", AddressSortField.City)]
+    [TestCase("postalCode", AddressSortField.PostalCode)]
+    [TestCase("country", AddressSortField.Country)]
+    [TestCase("createdAt", AddressSortField.CreatedAt)]
+    [TestCase("updatedAt", AddressSortField.UpdatedAt)]
+    [TestCase("UPDATEDAT", AddressSortField.UpdatedAt)]
+    [TestCase("FirstName", AddressSortField.FirstName)]
+    public async Task GetListAsync_SortBy_PassesSortField(string sortBy, AddressSortField expectedSortBy)
+    {
+        // Arrange
+        var query = new AddressListQuery(null, null, SortBy: sortBy);
+
+        // Act
+        await _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).ListAsync(
+            Arg.Is<AddressListCriteria>(criteria => criteria.SortBy == expectedSortBy),
+            Arg.Any<CancellationToken>());
+    }
+
+    [TestCase("asc", SortDirection.Ascending)]
+    [TestCase("desc", SortDirection.Descending)]
+    [TestCase("ASC", SortDirection.Ascending)]
+    [TestCase("Desc", SortDirection.Descending)]
+    public async Task GetListAsync_SortDirection_PassesSortDirection(
+        string sortDirection,
+        SortDirection expectedSortDirection)
+    {
+        // Arrange
+        var query = new AddressListQuery(null, null, SortDirection: sortDirection);
+
+        // Act
+        await _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).ListAsync(
+            Arg.Is<AddressListCriteria>(criteria => criteria.SortDirection == expectedSortDirection),
+            Arg.Any<CancellationToken>());
+    }
+
+    [TestCase("")]
+    [TestCase(" ")]
+    public async Task GetListAsync_BlankSortValues_PassesDefaultSortOrder(string blank)
+    {
+        // Arrange
+        var query = new AddressListQuery(null, null, SortBy: blank, SortDirection: blank);
+
+        // Act
+        await _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).ListAsync(
+            Arg.Is<AddressListCriteria>(criteria =>
+                criteria.SortBy == AddressSortField.LastName && criteria.SortDirection == SortDirection.Ascending),
+            Arg.Any<CancellationToken>());
+    }
+
+    [TestCase(1, 1)]
+    [TestCase(2, 20)]
+    [TestCase(7, 100)]
+    [TestCase(int.MaxValue, 100)]
+    public async Task GetListAsync_PageAndPageSize_PassesPage(int page, int pageSize)
+    {
+        // Arrange
+        var query = new AddressListQuery(null, null, page, pageSize);
+
+        // Act
+        await _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).ListAsync(
+            Arg.Is<AddressListCriteria>(criteria => criteria.Page == page && criteria.PageSize == pageSize),
+            Arg.Any<CancellationToken>());
+    }
+
     [Test]
-    public async Task GetListAsync_MatchingAddresses_ReturnsResponsesInRepositoryOrder()
+    public async Task GetListAsync_Page_ReturnsResponsesInRepositoryOrderWithPageAndCounts()
     {
         // Arrange
         Address first = CreateStoredAddress(AddressInput.Changed);
         Address second = CreateStoredAddress(AddressInput.Valid);
-        _addressRepository.ListAsync(default, default, default).ReturnsForAnyArgs([first, second]);
+        ReturnPage(new AddressPage([first, second], 25));
 
         // Act
-        IReadOnlyList<AddressResponse> responses =
-            await _service.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+        AddressListResponse response =
+            await _service.GetListAsync(new AddressListQuery(null, null, 2, 2), CancellationToken.None);
 
         // Assert
-        responses.Should().Equal(first.ToResponse(), second.ToResponse());
+        response.Items.Should().Equal(first.ToResponse(), second.ToResponse());
+        response.Page.Should().Be(2);
+        response.PageSize.Should().Be(2);
+        response.TotalCount.Should().Be(25);
+        response.TotalPages.Should().Be(13);
     }
 
     [Test]
-    public async Task GetListAsync_NoMatches_ReturnsEmptyList()
+    public async Task GetListAsync_NoMatches_ReturnsEmptyFirstPageWithDefaultSize()
     {
         // Arrange
-        _addressRepository.ListAsync(default, default, default).ReturnsForAnyArgs([]);
+        ReturnPage(new AddressPage([], 0));
 
         // Act
-        IReadOnlyList<AddressResponse> responses =
+        AddressListResponse response =
             await _service.GetListAsync(new AddressListQuery("Köln", null), CancellationToken.None);
 
         // Assert
-        responses.Should().BeEmpty();
+        response.Should().BeEquivalentTo(new AddressListResponse([], 1, 20, 0, 0));
+    }
+
+    [Test]
+    public async Task GetListAsync_PageBehindEnd_ReturnsEmptyItemsWithRequestedPageAndCounts()
+    {
+        // Arrange
+        ReturnPage(new AddressPage([], 5));
+
+        // Act
+        AddressListResponse response =
+            await _service.GetListAsync(new AddressListQuery(null, null, 3, 10), CancellationToken.None);
+
+        // Assert
+        response.Should().BeEquivalentTo(new AddressListResponse([], 3, 10, 5, 1));
     }
 
     [Test]
@@ -377,26 +495,33 @@ public class AddressServiceTests
 
         // Assert
         await _addressRepository.Received(1)
-            .ListAsync(Arg.Any<string?>(), Arg.Any<string?>(), cancellationTokenSource.Token);
+            .ListAsync(Arg.Any<AddressListCriteria>(), cancellationTokenSource.Token);
     }
 
     [Test]
-    public async Task GetListAsync_MatchingAddresses_LogsCountAndNormalizedFilters()
+    public async Task GetListAsync_Page_LogsCountsPageSortOrderAndNormalizedFilters()
     {
         // Arrange
         Address first = CreateStoredAddress(AddressInput.Valid);
         Address second = CreateStoredAddress(AddressInput.Valid);
-        _addressRepository.ListAsync(default, default, default).ReturnsForAnyArgs([first, second]);
+        ReturnPage(new AddressPage([first, second], 25));
+        var query = new AddressListQuery("Köln", "51147", 2, 2, "CITY", "DESC");
 
         // Act
-        await _service.GetListAsync(new AddressListQuery("Köln", "51147"), CancellationToken.None);
+        await _service.GetListAsync(query, CancellationToken.None);
 
         // Assert
         FakeLogRecord record = ShouldHaveLoggedSingle(
             LogLevel.Debug,
             4,
-            "Listed 2 addresses for city city:Köln and postal code postal:51147");
+            "Listed 2 of 25 addresses on page 2 of size 2 sorted by City Descending for city city:Köln and "
+            + "postal code postal:51147");
         record.GetStructuredStateValue("Count").Should().Be("2");
+        record.GetStructuredStateValue("TotalCount").Should().Be("25");
+        record.GetStructuredStateValue("Page").Should().Be("2");
+        record.GetStructuredStateValue("PageSize").Should().Be("2");
+        record.GetStructuredStateValue("SortBy").Should().Be("City");
+        record.GetStructuredStateValue("SortDirection").Should().Be("Descending");
         record.GetStructuredStateValue("NormalizedCity").Should().Be("city:Köln");
         record.GetStructuredStateValue("NormalizedPostalCode").Should().Be("postal:51147");
     }
@@ -412,7 +537,45 @@ public class AddressServiceTests
 
         // Assert
         await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("query");
-        await _addressRepository.DidNotReceiveWithAnyArgs().ListAsync(default, default, default);
+        await _addressRepository.DidNotReceiveWithAnyArgs().ListAsync(default!, default);
+    }
+
+    [TestCase(0, null)]
+    [TestCase(-1, null)]
+    [TestCase(null, 0)]
+    [TestCase(null, -1)]
+    [TestCase(null, 101)]
+    [TestCase(int.MinValue, int.MaxValue)]
+    public async Task GetListAsync_PageOrPageSizeOutOfRange_ThrowsArgumentOutOfRangeException(
+        int? page,
+        int? pageSize)
+    {
+        // Arrange
+        var query = new AddressListQuery(null, null, page, pageSize);
+
+        // Act
+        Func<Task> act = () => _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentOutOfRangeException>();
+        await _addressRepository.DidNotReceiveWithAnyArgs().ListAsync(default!, default);
+    }
+
+    [TestCase("email", null)]
+    [TestCase(" lastName", null)]
+    [TestCase(null, "up")]
+    [TestCase(null, "ascending")]
+    public async Task GetListAsync_UnknownSortValue_ThrowsArgumentException(string? sortBy, string? sortDirection)
+    {
+        // Arrange
+        var query = new AddressListQuery(null, null, SortBy: sortBy, SortDirection: sortDirection);
+
+        // Act
+        Func<Task> act = () => _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentException>().WithParameterName("query");
+        await _addressRepository.DidNotReceiveWithAnyArgs().ListAsync(default!, default);
     }
 
     [Test]
@@ -928,6 +1091,9 @@ public class AddressServiceTests
         await act.Should().ThrowAsync<OperationCanceledException>();
         _logger.Collector.Count.Should().Be(0);
     }
+
+    private void ReturnPage(AddressPage page) =>
+        _addressRepository.ListAsync(Arg.Any<AddressListCriteria>(), Arg.Any<CancellationToken>()).Returns(page);
 
     private void ReturnOnUpdate(Address address, ChangeStatus status) =>
         _addressRepository.UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>()).Returns(status);

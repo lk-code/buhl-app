@@ -1,5 +1,7 @@
 using AwesomeAssertions;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
+using LKCode.AddressManagement.Core.Addresses.Queries;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Data.Repositories;
 using LKCode.AddressManagement.Domain.Addresses;
@@ -276,6 +278,15 @@ public class ServiceCollectionExtensionsTests
         await using AsyncServiceScope scope = provider.CreateAsyncScope();
         IAddressRepository repository = scope.ServiceProvider.GetRequiredService<IAddressRepository>();
 
-        return await repository.ListAsync(null, null, CancellationToken.None);
+        var criteria = new AddressListCriteria(
+            null,
+            null,
+            AddressListConstraints.DefaultSortBy,
+            AddressListConstraints.DefaultSortDirection,
+            AddressListConstraints.DefaultPage,
+            AddressListConstraints.MaxPageSize);
+        AddressPage page = await repository.ListAsync(criteria, CancellationToken.None);
+
+        return page.Addresses;
     }
 }

@@ -25,6 +25,7 @@ namespace LKCode.AddressManagement.Service.Controllers;
 /// <param name="addressService">The service that reads and stores the addresses.</param>
 /// <param name="createAddressValidator">The validator of the requests to create an address.</param>
 /// <param name="updateAddressValidator">The validator of the requests to change an address.</param>
+/// <param name="addressListQueryValidator">The validator of the paging and sorting parameters of the list.</param>
 /// <param name="jsonOptions">
 /// The JSON options of the controllers; their naming policy converts the property names of validation errors.
 /// </param>
@@ -42,6 +43,7 @@ public sealed class AddressesController(
     IAddressService addressService,
     IValidator<CreateAddressRequest> createAddressValidator,
     IValidator<UpdateAddressRequest> updateAddressValidator,
+    IValidator<AddressListQuery> addressListQueryValidator,
     IOptions<JsonOptions> jsonOptions) : ControllerBase
 {
     private const string GetByIdRouteName = "GetAddressById";
@@ -75,6 +77,9 @@ public sealed class AddressesController(
 
     private readonly IValidator<UpdateAddressRequest> _updateAddressValidator =
         updateAddressValidator ?? throw new ArgumentNullException(nameof(updateAddressValidator));
+
+    private readonly IValidator<AddressListQuery> _addressListQueryValidator =
+        addressListQueryValidator ?? throw new ArgumentNullException(nameof(addressListQueryValidator));
 
     private readonly JsonNamingPolicy? _jsonNamingPolicy =
         (jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions)))
@@ -111,31 +116,74 @@ public sealed class AddressesController(
     }
 
     /// <summary>
-    /// Gets all addresses, optionally filtered by city and postal code.
+    /// Gets one page of the addresses, optionally filtered by city and postal code and sorted by a field.
     /// </summary>
     /// <param name="city">A part of the city to search for. Missing or blank to ignore the city.</param>
     /// <param name="postalCode">
     /// A part of the postal code to search for. Missing or blank to ignore the postal code.
     /// </param>
+    /// <param name="page">The number of the page, starting at 1. Missing or blank for the first page.</param>
+    /// <param name="pageSize">
+    /// The maximum number of addresses on a page, from 1 to 100. Missing or blank for 20.
+    /// </param>
+    /// <param name="sortBy">
+    /// The field to sort by: `lastName`, `firstName`, `city`, `postalCode`, `country`, `createdAt` or `updatedAt`.
+    /// Missing or blank for `lastName`.
+    /// </param>
+    /// <param name="sortDirection">The sort direction: `asc` or `desc`. Missing or blank for `asc`.</param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
-    /// <returns>The matching addresses; an empty list if none matches.</returns>
+    /// <returns>
+    /// The page of the matching addresses, or <c>400 Bad Request</c> with all errors of the paging and sorting
+    /// parameters.
+    /// </returns>
     /// <remarks>
     /// Both filters are optional and search for a part of the value, e.g. `sol` finds `Solingen`. They are compared
     /// with normalized values: the case, surrounding whitespace and accents do not matter, umlauts and their
     /// spellings with `e` are the same (`Koeln` finds `Köln`), and spaces in postal codes are ignored. If both filters
-    /// are given, an address must match both. The order of the addresses is not specified.
+    /// are given, an address must match both.
+    ///
+    /// The response contains the addresses of the requested page in `items`, the page and the page size as
+    /// requested, the number of all matching addresses in `totalCount` and the number of pages in `totalPages`. A
+    /// page behind the end has no `items`; it is no error.
+    ///
+    /// Addresses with the same value of the sort field are sorted by their id in the same direction, so that the
+    /// order is stable and every address is on exactly one page; `desc` is the exact reverse of `asc`. The names of
+    /// the sort field and the sort direction may be in any case. Texts are compared as the database compares them.
+    ///
+    /// A page below 1, a page size outside 1 to 100, a value that is no integer, and an unknown sort field or
+    /// direction result in `400 Bad Request` with all errors together, keyed by the name of the parameter, e.g.
+    /// `pageSize`.
     /// </remarks>
-    /// <response code="200">The matching addresses; an empty array if none matches.</response>
+    /// <response code="200">
+    /// The page of the matching addresses; `items` is empty if none matches or the page is behind the end.
+    /// </response>
+    /// <response code="400">A paging or sorting parameter is invalid.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet(Name = ListRouteName)]
-    [ProducesResponseType<IReadOnlyList<AddressResponse>>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
-    public async Task<ActionResult<IReadOnlyList<AddressResponse>>> GetListAsync(
+    [ProducesResponseType<AddressListResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
+    [ProducesResponseType<ValidationProblemDetails>(
+        StatusCodes.Status400BadRequest,
+        MediaTypeNames.Application.ProblemJson)]
+    public async Task<ActionResult<AddressListResponse>> GetListAsync(
         [FromQuery] string? city,
         [FromQuery] string? postalCode,
+        [FromQuery] int? page,
+        [FromQuery] int? pageSize,
+        [FromQuery] string? sortBy,
+        [FromQuery] string? sortDirection,
         CancellationToken cancellationToken)
     {
-        IReadOnlyList<AddressResponse> addresses =
-            await _addressService.GetListAsync(new AddressListQuery(city, postalCode), cancellationToken);
+        // A value that is no integer is already in the model state; it is reported together with the other errors.
+        AddressListQuery query =
+            new AddressListQuery(city, postalCode, page, pageSize, sortBy, sortDirection).Sanitize();
+        ValidationResult validationResult = await _addressListQueryValidator.ValidateAsync(query, cancellationToken);
+        ModelState.AddValidationErrors(validationResult, _jsonNamingPolicy);
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
+        AddressListResponse addresses = await _addressService.GetListAsync(query, cancellationToken);
 
         return Ok(addresses);
     }
