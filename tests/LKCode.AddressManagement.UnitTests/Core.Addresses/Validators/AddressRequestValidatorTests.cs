@@ -133,6 +133,70 @@ public abstract class AddressRequestValidatorTests<TRequest>
         result.Errors.Should().ContainSingle().Which.PropertyName.Should().Be("Country");
     }
 
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase(" ")]
+    [TestCase("\t\n")]
+    public void Validate_MissingEmail_ReturnsNoErrors(string? email)
+    {
+        // Arrange
+        TRequest request = CreateRequest(AddressInput.Valid with { Email = email });
+
+        // Act
+        ValidationResult result = _validator.Validate(request);
+
+        // Assert
+        result.Errors.Should().BeEmpty();
+    }
+
+    [TestCase("erika.mustermann@example.com")]
+    [TestCase("erika+news@example.com")]
+    [TestCase("erika_mustermann@sub.example.co.uk")]
+    [TestCase("e@x.io")]
+    [TestCase("Erika.Mustermann@Example.COM")]
+    [TestCase("jörg@exämple.de")]
+    [TestCase("\"erika mustermann\"@example.com")]
+    public void Validate_ValidEmail_ReturnsNoErrors(string email)
+    {
+        // Arrange
+        TRequest request = CreateRequest(AddressInput.Valid with { Email = email });
+
+        // Act
+        ValidationResult result = _validator.Validate(request);
+
+        // Assert
+        result.Errors.Should().BeEmpty();
+    }
+
+    [TestCase("erika")]
+    [TestCase("erika.example.com")]
+    [TestCase("@example.com")]
+    [TestCase("erika@")]
+    [TestCase("erika@@example.com")]
+    [TestCase("erika@example@com")]
+    [TestCase("erika mustermann@example.com")]
+    [TestCase("erika@exa mple.com")]
+    [TestCase("erika@example..com")]
+    [TestCase(".erika@example.com")]
+    [TestCase("erika..mustermann@example.com")]
+    [TestCase("erika@example,com")]
+    [TestCase("erika;max@example.com")]
+    [TestCase("Erika <erika@example.com>")]
+    [TestCase("<erika@example.com>")]
+    [TestCase("erika(comment)@example.com")]
+    [TestCase("erika@example.com, max@example.com")]
+    public void Validate_InvalidEmail_ReturnsSingleErrorForEmail(string email)
+    {
+        // Arrange
+        TRequest request = CreateRequest(AddressInput.Valid with { Email = email });
+
+        // Act
+        ValidationResult result = _validator.Validate(request);
+
+        // Assert
+        result.Errors.Should().ContainSingle().Which.PropertyName.Should().Be("Email");
+    }
+
     [Test]
     public void Validate_AllValuesInvalid_ReturnsOneErrorForEachValue()
     {
