@@ -16,7 +16,8 @@ namespace LKCode.AddressManagement.Core.Addresses;
 /// <param name="timeProvider">The provider of the current time.</param>
 /// <param name="logger">The logger.</param>
 /// <remarks>
-/// Only ids, counts and normalized filters are logged, never personal data such as names or email addresses.
+/// Only ids, versions, counts and normalized filters are logged, never personal data such as names or email
+/// addresses.
 /// </remarks>
 /// <exception cref="ArgumentNullException">A parameter is <see langword="null"/>.</exception>
 public sealed partial class AddressService(
@@ -86,16 +87,63 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public Task<AddressChangeResult> UpdateAsync(
+    public async Task<AddressChangeResult> UpdateAsync(
         Guid id,
         long? expectedVersion,
         UpdateAddressRequest request,
-        CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            LogAddressNotFound(_logger, id);
+            return AddressChangeResult.NotFound;
+        }
+
+        request.ApplyTo(address, _textNormalizer, _timeProvider);
+        ChangeStatus status = await _addressRepository.UpdateAsync(address, expectedVersion, cancellationToken);
+        switch (status)
+        {
+            case ChangeStatus.Success:
+                LogAddressUpdated(_logger, id);
+                return AddressChangeResult.Success(address.ToResponse());
+            case ChangeStatus.NotFound:
+                LogAddressNotFound(_logger, id);
+                return AddressChangeResult.NotFound;
+            default:
+                LogVersionMismatch(_logger, id, expectedVersion);
+                return AddressChangeResult.VersionMismatch;
+        }
+    }
 
     /// <inheritdoc />
-    public Task<ChangeStatus> DeleteAsync(Guid id, long? expectedVersion, CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    public async Task<ChangeStatus> DeleteAsync(Guid id, long? expectedVersion, CancellationToken cancellationToken)
+    {
+        Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            LogAddressNotFound(_logger, id);
+            return ChangeStatus.NotFound;
+        }
+
+        ChangeStatus status = await _addressRepository.DeleteAsync(address, expectedVersion, cancellationToken);
+        switch (status)
+        {
+            case ChangeStatus.Success:
+                LogAddressDeleted(_logger, id);
+                break;
+            case ChangeStatus.NotFound:
+                LogAddressNotFound(_logger, id);
+                break;
+            default:
+                LogVersionMismatch(_logger, id, expectedVersion);
+                break;
+        }
+
+        return status;
+    }
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Created address {AddressId}")]
     private static partial void LogAddressCreated(ILogger logger, Guid addressId);
@@ -121,4 +169,10 @@ public sealed partial class AddressService(
 
     [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "Deleted address {AddressId}")]
     private static partial void LogAddressDeleted(ILogger logger, Guid addressId);
+
+    [LoggerMessage(
+        EventId = 7,
+        Level = LogLevel.Information,
+        Message = "Address {AddressId} was not saved: its version differs from the expected version {ExpectedVersion}")]
+    private static partial void LogVersionMismatch(ILogger logger, Guid addressId, long? expectedVersion);
 }

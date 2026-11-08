@@ -91,6 +91,8 @@ public class AddressesControllerTests
         _serviceProvider = new ServiceCollection().AddControllers().Services.BuildServiceProvider();
         _addressService = Substitute.For<IAddressService>();
         _addressService.CreateAsync(Arg.Any<CreateAddressRequest>(), Arg.Any<CancellationToken>()).Returns(_address);
+        _addressService.UpdateAsync(default, default, default!, default)
+            .ReturnsForAnyArgs(AddressChangeResult.Success(_address));
         _createAddressValidator = Substitute.For<IValidator<CreateAddressRequest>>();
         _createAddressValidator
             .ValidateAsync(Arg.Any<CreateAddressRequest>(), Arg.Any<CancellationToken>())

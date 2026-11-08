@@ -9,15 +9,21 @@ namespace LKCode.AddressManagement.Core.Addresses.Results;
 /// </summary>
 public sealed record AddressChangeResult
 {
+    private AddressChangeResult(ChangeStatus status, AddressResponse? address)
+    {
+        Status = status;
+        Address = address;
+    }
+
     /// <summary>
     /// Gets the result of a change that was not saved because there is no address with the id.
     /// </summary>
-    public static AddressChangeResult NotFound => throw new NotImplementedException();
+    public static AddressChangeResult NotFound { get; } = new(ChangeStatus.NotFound, address: null);
 
     /// <summary>
     /// Gets the result of a change that was not saved because the address has a different version than expected.
     /// </summary>
-    public static AddressChangeResult VersionMismatch => throw new NotImplementedException();
+    public static AddressChangeResult VersionMismatch { get; } = new(ChangeStatus.VersionMismatch, address: null);
 
     /// <summary>
     /// Gets the status of the change.
@@ -33,7 +39,7 @@ public sealed record AddressChangeResult
     /// Gets a value indicating whether the change was saved; <see cref="Address"/> is set exactly then.
     /// </summary>
     [MemberNotNullWhen(true, nameof(Address))]
-    public bool IsSuccess => throw new NotImplementedException();
+    public bool IsSuccess => Status == ChangeStatus.Success;
 
     /// <summary>
     /// Creates the result of a change that was saved.
@@ -41,5 +47,10 @@ public sealed record AddressChangeResult
     /// <param name="address">The changed address.</param>
     /// <returns>The result with the status <see cref="ChangeStatus.Success"/> and the changed address.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="address"/> is <see langword="null"/>.</exception>
-    public static AddressChangeResult Success(AddressResponse address) => throw new NotImplementedException();
+    public static AddressChangeResult Success(AddressResponse address)
+    {
+        ArgumentNullException.ThrowIfNull(address);
+
+        return new AddressChangeResult(ChangeStatus.Success, address);
+    }
 }
