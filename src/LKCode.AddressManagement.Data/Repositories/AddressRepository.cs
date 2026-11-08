@@ -59,16 +59,6 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
         return SaveWithExpectedVersionAsync(entry, expectedVersion, cancellationToken);
     }
 
-    /// <inheritdoc />
-    public Task<ChangeStatus> DeleteAsync(Address address, long? expectedVersion, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(address);
-
-        EntityEntry<Address> entry = _dbContext.Addresses.Remove(address);
-
-        return SaveWithExpectedVersionAsync(entry, expectedVersion, cancellationToken);
-    }
-
     /// <summary>
     /// Saves the change of the <paramref name="entry"/> if the stored version equals the expected version.
     /// </summary>

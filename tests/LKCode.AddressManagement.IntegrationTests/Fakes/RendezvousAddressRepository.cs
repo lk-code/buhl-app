@@ -6,8 +6,8 @@ using LKCode.AddressManagement.Domain.Addresses;
 namespace LKCode.AddressManagement.IntegrationTests.Fakes;
 
 /// <summary>
-/// Decorates the <see cref="AddressRepository"/> and holds every change and deletion back until all participants of
-/// the <paramref name="rendezvous"/> want to save.
+/// Decorates the <see cref="AddressRepository"/> and holds every change, including a deletion, back until all
+/// participants of the <paramref name="rendezvous"/> want to save.
 /// </summary>
 /// <remarks>
 /// Concurrent requests that reach the repository have all passed the checks of the controller and the service with
@@ -35,15 +35,5 @@ public sealed class RendezvousAddressRepository(AddressRepository inner, Rendezv
         await rendezvous.ArriveAndWaitAsync(cancellationToken);
 
         return await inner.UpdateAsync(address, expectedVersion, cancellationToken);
-    }
-
-    public async Task<ChangeStatus> DeleteAsync(
-        Address address,
-        long? expectedVersion,
-        CancellationToken cancellationToken)
-    {
-        await rendezvous.ArriveAndWaitAsync(cancellationToken);
-
-        return await inner.DeleteAsync(address, expectedVersion, cancellationToken);
     }
 }
