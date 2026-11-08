@@ -5,6 +5,7 @@ using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
 using LKCode.AddressManagement.Service.OpenApiTransformers;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Scalar.AspNetCore;
 using Serilog;
@@ -56,7 +57,20 @@ builder.Services
 // internal type names.
 builder.Services
     .AddControllers(options => options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true)
-    .AddJsonOptions(options => options.AllowInputFormatterExceptionMessages = false);
+    .AddJsonOptions(options => options.AllowInputFormatterExceptionMessages = false)
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        // The actions check the model state themselves: a change evaluates its preconditions (If-Match) before it
+        // processes the body (RFC 9110, section 13.2.1), so an invalid body must not end the request beforehand.
+        options.SuppressModelStateInvalidFilter = true;
+
+        // MVC has no defaults for 428 (RFC 6585, section 3); its Problem Details would lack type and title.
+        options.ClientErrorMapping[StatusCodes.Status428PreconditionRequired] = new ClientErrorData
+        {
+            Link = "https://tools.ietf.org/html/rfc6585#section-3",
+            Title = "Precondition Required",
+        };
+    });
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 builder.Services.AddOpenApi(options =>

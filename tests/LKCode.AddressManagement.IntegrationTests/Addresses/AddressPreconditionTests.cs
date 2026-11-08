@@ -330,9 +330,13 @@ public class AddressPreconditionTests
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
     }
 
+    /// <summary>
+    /// Invalid values of the <c>If-Match</c> header. An empty header cannot be sent with <see cref="HttpClient"/>; the
+    /// unit tests of the evaluation cover it.
+    /// </summary>
     private static IEnumerable<TestCaseData> InvalidIfMatchCases()
     {
-        string[] values = ["", " ", "1", "\"1", "1\"", "'1'", "\"1\" x", "W/1", "W/*", "*, \"1\"", "\"1\", *"];
+        string[] values = [" ", "1", "\"1", "1\"", "'1'", "\"1\" x", "W/1", "W/*", "*, \"1\"", "\"1\", *"];
 
         return Combine(AddressChangeRequests.Methods, values);
     }

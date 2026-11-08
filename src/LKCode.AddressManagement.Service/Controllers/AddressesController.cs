@@ -10,9 +10,12 @@ using LKCode.AddressManagement.Core.Addresses.Mappings;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Extensions;
+using LKCode.AddressManagement.Service.Preconditions;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 
 namespace LKCode.AddressManagement.Service.Controllers;
 
@@ -51,6 +54,16 @@ public sealed class AddressesController(
     // MediaTypeNames has no constant for JSON Patch (RFC 6902, section 6).
     private const string JsonPatchMediaType = "application/json-patch+json";
 
+    private const string MissingIfMatchDetail =
+        "The request must contain the header If-Match with the current ETag of the address or '*'.";
+
+    private const string InvalidIfMatchError =
+        "The header If-Match must be '*' or a comma-separated list of entity tags, e.g. '\"3\"'.";
+
+    private const string VersionMismatchDetail =
+        "The version of the address does not match the header If-Match. Get the address again and repeat the "
+        + "request with its current ETag.";
+
     private static readonly CompositeFormat _failedTestDetail = CompositeFormat.Parse(
         "The test operation at index {0} failed: the value at '{1}' is not equal to the test value.");
 
@@ -74,10 +87,11 @@ public sealed class AddressesController(
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <returns>The address, or <c>404 Not Found</c> if there is no address with the id.</returns>
     /// <remarks>
-    /// An unknown id and an id that is no GUID both result in `404 Not Found`, like an unknown route. It is not
-    /// possible to tell whether an address with the id has ever existed.
+    /// The `ETag` header contains the strong entity tag of the current version of the address, e.g. `"3"`; a change
+    /// requires it in its `If-Match` header. An unknown id and an id that is no GUID both result in `404 Not Found`,
+    /// like an unknown route. It is not possible to tell whether an address with the id has ever existed.
     /// </remarks>
-    /// <response code="200">The address.</response>
+    /// <response code="200">The address; the `ETag` header contains its version.</response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet("{id:guid}", Name = GetByIdRouteName)]
@@ -86,8 +100,14 @@ public sealed class AddressesController(
     public async Task<ActionResult<AddressResponse>> GetByIdAsync(Guid id, CancellationToken cancellationToken)
     {
         AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            return NotFound();
+        }
 
-        return address is null ? NotFound() : Ok(address);
+        Response.Headers.SetETag(address.Version);
+
+        return Ok(address);
     }
 
     /// <summary>
@@ -130,19 +150,24 @@ public sealed class AddressesController(
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <param name="request">The values of the new address.</param>
     /// <returns>
-    /// <c>201 Created</c> with the new address and its URL in the <c>Location</c> header, or
-    /// <c>400 Bad Request</c> with all validation errors.
+    /// <c>201 Created</c> with the new address, its URL in the <c>Location</c> header and its version in the
+    /// <c>ETag</c> header, or <c>400 Bad Request</c> with all validation errors.
     /// </returns>
     /// <remarks>
     /// Before the validation, all values are trimmed, the country is converted to uppercase and a blank email
     /// address is treated as missing. All validation errors are returned together, keyed by the name of the field,
-    /// e.g. `firstName`. Errors in the JSON itself are keyed by their JSON path, e.g. `$.firstName`.
+    /// e.g. `firstName`. Errors in the JSON itself are keyed by their JSON path, e.g. `$.firstName`. A new address
+    /// has the version 1.
     /// </remarks>
-    /// <response code="201">The address was created; the `Location` header contains its URL.</response>
+    /// <response code="201">
+    /// The address was created; the `Location` header contains its URL, the `ETag` header its version.
+    /// </response>
     /// <response code="400">The body is no valid JSON object of an address or contains invalid values.</response>
     /// <response code="415">The body is not JSON.</response>
     /// <response code="500">An unexpected error occurred.</response>
-    /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="request"/> is <see langword="null"/> although the model state is valid.
+    /// </exception>
     [HttpPost(Name = CreateRouteName)]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status201Created, MediaTypeNames.Application.Json)]
@@ -156,6 +181,11 @@ public sealed class AddressesController(
         CreateAddressRequest request,
         CancellationToken cancellationToken)
     {
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
         ArgumentNullException.ThrowIfNull(request);
 
         CreateAddressRequest sanitizedRequest = request.Sanitize();
@@ -169,6 +199,7 @@ public sealed class AddressesController(
         }
 
         AddressResponse address = await _addressService.CreateAsync(sanitizedRequest, cancellationToken);
+        Response.Headers.SetETag(address.Version);
 
         return CreatedAtRoute(GetByIdRouteName, new { id = address.Id }, address);
     }
@@ -180,23 +211,39 @@ public sealed class AddressesController(
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <param name="request">The new values of the address.</param>
     /// <returns>
-    /// <c>200 OK</c> with the changed address, <c>400 Bad Request</c> with all validation errors, or
-    /// <c>404 Not Found</c> if there is no address with the id.
+    /// <c>200 OK</c> with the changed address and its new version in the <c>ETag</c> header; or an error, see
+    /// the remarks.
     /// </returns>
     /// <remarks>
     /// All values are replaced; a missing or blank email address removes the existing one. Before the validation, all
     /// values are trimmed, the country is converted to uppercase and a blank email address is treated as missing. All
     /// validation errors are returned together, keyed by the name of the field, e.g. `firstName`. Errors in the JSON
-    /// itself are keyed by their JSON path, e.g. `$.firstName`. The body is checked before the id: an invalid body
-    /// results in `400 Bad Request` even if there is no address with the id. An unknown id and an id that is no GUID
-    /// both result in `404 Not Found`, like an unknown route.
+    /// itself are keyed by their JSON path, e.g. `$.firstName`.
+    ///
+    /// The `If-Match` header is required and contains the `ETag` of the version to change, e.g. `"3"`, or `*` to
+    /// change any version. Entity tags are compared strongly: a weak entity tag such as `W/"3"` never matches.
+    ///
+    /// The checks run in this order (RFC 9110, section 13.2.2): an unknown id or an id that is no GUID results in
+    /// `404 Not Found`, like an unknown route; a missing `If-Match` header in `428 Precondition Required`; an
+    /// `If-Match` header that is neither `*` nor a list of entity tags in `400 Bad Request`; an `If-Match` header
+    /// without the current version in `412 Precondition Failed`; only then an invalid body in `400 Bad Request`. A
+    /// change by someone else between these checks and the saving also results in `412 Precondition Failed`.
     /// </remarks>
-    /// <response code="200">The address was changed.</response>
-    /// <response code="400">The body is no valid JSON object of an address or contains invalid values.</response>
+    /// <response code="200">The address was changed; the `ETag` header contains its new version.</response>
+    /// <response code="400">
+    /// The `If-Match` header is invalid, or the body is no valid JSON object of an address or contains invalid
+    /// values.
+    /// </response>
     /// <response code="404">There is no address with the id.</response>
+    /// <response code="412">
+    /// The `If-Match` header does not contain the current version of the address; it was not changed.
+    /// </response>
     /// <response code="415">The body is not JSON.</response>
+    /// <response code="428">The `If-Match` header is missing.</response>
     /// <response code="500">An unexpected error occurred.</response>
-    /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="request"/> is <see langword="null"/> although the model state is valid.
+    /// </exception>
     [HttpPut("{id:guid}", Name = UpdateRouteName)]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
@@ -212,9 +259,25 @@ public sealed class AddressesController(
         UpdateAddressRequest request,
         CancellationToken cancellationToken)
     {
+        AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            return NotFound();
+        }
+
+        if (CheckIfMatch(address.Version, out long? expectedVersion) is { } preconditionFailure)
+        {
+            return preconditionFailure;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
         ArgumentNullException.ThrowIfNull(request);
 
-        return await SanitizeValidateAndUpdateAsync(id, request, cancellationToken);
+        return await SanitizeValidateAndUpdateAsync(id, expectedVersion, request, cancellationToken);
     }
 
     /// <summary>
@@ -224,9 +287,8 @@ public sealed class AddressesController(
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <param name="patchDocument">The operations to apply to the values of the address.</param>
     /// <returns>
-    /// <c>200 OK</c> with the changed address, <c>400 Bad Request</c> with all errors of the patch document or of
-    /// the changed values, <c>404 Not Found</c> if there is no address with the id, or <c>409 Conflict</c> if a
-    /// <c>test</c> operation failed.
+    /// <c>200 OK</c> with the changed address and its new version in the <c>ETag</c> header; or an error, see
+    /// the remarks.
     /// </returns>
     /// <remarks>
     /// The operations are applied in their order to the current values of the address, as they would be sent with
@@ -238,20 +300,34 @@ public sealed class AddressesController(
     /// address with its exact name, e.g. `/firstName`; `add` and `replace` both set the value of a field, `remove`
     /// removes it. Removing a required value results in a validation error; a missing `value` is treated as `null`.
     ///
-    /// The checks run in this order: errors in the patch document itself result in `400 Bad Request` with the
-    /// errors keyed by their JSON path, e.g. `$[0].path`, even if there is no address with the id. Then an unknown id
-    /// or an id that is no GUID results in `404 Not Found`, a failed `test` operation in `409 Conflict`, and invalid
-    /// changed values in `400 Bad Request` with the errors keyed by the name of the field, e.g. `firstName`.
+    /// The `If-Match` header is required and contains the `ETag` of the version to change, e.g. `"3"`, or `*` to
+    /// change any version. Entity tags are compared strongly: a weak entity tag such as `W/"3"` never matches.
+    ///
+    /// The checks run in this order (RFC 9110, section 13.2.2): an unknown id or an id that is no GUID results in
+    /// `404 Not Found`, like an unknown route; a missing `If-Match` header in `428 Precondition Required`; an
+    /// `If-Match` header that is neither `*` nor a list of entity tags in `400 Bad Request`; an `If-Match` header
+    /// without the current version in `412 Precondition Failed`. Only then the body is checked: errors in the patch
+    /// document itself result in `400 Bad Request` with the errors keyed by their JSON path, e.g. `$[0].path`, a
+    /// failed `test` operation in `409 Conflict`, and invalid changed values in `400 Bad Request` with the errors
+    /// keyed by the name of the field, e.g. `firstName`. A change by someone else between these checks and the
+    /// saving also results in `412 Precondition Failed`.
     /// </remarks>
-    /// <response code="200">The address was changed.</response>
+    /// <response code="200">The address was changed; the `ETag` header contains its new version.</response>
     /// <response code="400">
-    /// The body is no valid JSON Patch document for an address, or the changed values are invalid.
+    /// The `If-Match` header is invalid, the body is no valid JSON Patch document for an address, or the changed
+    /// values are invalid.
     /// </response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="409">A `test` operation failed; the address was not changed.</response>
+    /// <response code="412">
+    /// The `If-Match` header does not contain the current version of the address; it was not changed.
+    /// </response>
     /// <response code="415">The body is not a JSON Patch document (`application/json-patch+json`).</response>
+    /// <response code="428">The `If-Match` header is missing.</response>
     /// <response code="500">An unexpected error occurred.</response>
-    /// <exception cref="ArgumentNullException"><paramref name="patchDocument"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="patchDocument"/> is <see langword="null"/> although the model state is valid.
+    /// </exception>
     [HttpPatch("{id:guid}", Name = PatchRouteName)]
     [Consumes(JsonPatchMediaType)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
@@ -268,6 +344,22 @@ public sealed class AddressesController(
         JsonPatchDocument<UpdateAddressRequest> patchDocument,
         CancellationToken cancellationToken)
     {
+        AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            return NotFound();
+        }
+
+        if (CheckIfMatch(address.Version, out long? expectedVersion) is { } preconditionFailure)
+        {
+            return preconditionFailure;
+        }
+
+        if (!ModelState.IsValid)
+        {
+            return ValidationProblem(ModelState);
+        }
+
         ArgumentNullException.ThrowIfNull(patchDocument);
 
         ValidationResult operationsResult = patchDocument.ValidateOperations();
@@ -277,12 +369,6 @@ public sealed class AddressesController(
             ModelState.AddValidationErrors(operationsResult, namingPolicy: null);
 
             return ValidationProblem(ModelState);
-        }
-
-        AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
-        if (address is null)
-        {
-            return NotFound();
         }
 
         // The patch changes a new request with the current values, so a failed test leaves nothing changed.
@@ -298,7 +384,7 @@ public sealed class AddressesController(
             return Problem(detail: detail, statusCode: StatusCodes.Status409Conflict);
         }
 
-        return await SanitizeValidateAndUpdateAsync(id, request, cancellationToken);
+        return await SanitizeValidateAndUpdateAsync(id, expectedVersion, request, cancellationToken);
     }
 
     /// <summary>
@@ -307,38 +393,72 @@ public sealed class AddressesController(
     /// <param name="id">The id of the address.</param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <returns>
-    /// <c>204 No Content</c>, or <c>404 Not Found</c> if there is no address with the id.
+    /// <c>204 No Content</c>; or an error, see the remarks.
     /// </returns>
     /// <remarks>
-    /// After the deletion, all requests for the id result in `404 Not Found`, including another deletion. An unknown
-    /// id and an id that is no GUID both result in `404 Not Found`, like an unknown route. It is not possible to tell
-    /// whether an address with the id has ever existed.
+    /// The `If-Match` header is required and contains the `ETag` of the version to delete, e.g. `"3"`, or `*` to
+    /// delete any version. Entity tags are compared strongly: a weak entity tag such as `W/"3"` never matches.
+    ///
+    /// The checks run in this order (RFC 9110, section 13.2.2): an unknown id or an id that is no GUID results in
+    /// `404 Not Found`, like an unknown route; a missing `If-Match` header in `428 Precondition Required`; an
+    /// `If-Match` header that is neither `*` nor a list of entity tags in `400 Bad Request`; an `If-Match` header
+    /// without the current version in `412 Precondition Failed`. A change by someone else between these checks and
+    /// the deletion also results in `412 Precondition Failed`.
+    ///
+    /// After the deletion, all requests for the id result in `404 Not Found`, including another deletion. It is not
+    /// possible to tell whether an address with the id has ever existed.
     /// </remarks>
     /// <response code="204">The address was deleted.</response>
+    /// <response code="400">The `If-Match` header is invalid.</response>
     /// <response code="404">There is no address with the id.</response>
+    /// <response code="412">
+    /// The `If-Match` header does not contain the current version of the address; it was not deleted.
+    /// </response>
+    /// <response code="428">The `If-Match` header is missing.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpDelete("{id:guid}", Name = DeleteRouteName)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
-        ChangeStatus status = await _addressService.DeleteAsync(id, expectedVersion: null, cancellationToken);
+        AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            return NotFound();
+        }
 
-        return status == ChangeStatus.Success ? NoContent() : NotFound();
+        if (CheckIfMatch(address.Version, out long? expectedVersion) is { } preconditionFailure)
+        {
+            return preconditionFailure;
+        }
+
+        ChangeStatus status = await _addressService.DeleteAsync(id, expectedVersion, cancellationToken);
+
+        return status switch
+        {
+            ChangeStatus.Success => NoContent(),
+            ChangeStatus.NotFound => NotFound(),
+            _ => VersionMismatchProblem(),
+        };
     }
 
     /// <summary>
     /// Sanitizes and validates the new values of an address and replaces the values of the address with them.
     /// </summary>
     /// <param name="id">The id of the address.</param>
+    /// <param name="expectedVersion">
+    /// The version the address must still have; <see langword="null"/> for any version.
+    /// </param>
     /// <param name="request">The new values of the address, not yet sanitized.</param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <returns>
-    /// <c>200 OK</c> with the changed address, <c>400 Bad Request</c> with all validation errors, or
-    /// <c>404 Not Found</c> if there is no address with the id.
+    /// <c>200 OK</c> with the changed address and its new version in the <c>ETag</c> header,
+    /// <c>400 Bad Request</c> with all validation errors, <c>404 Not Found</c> if the address was deleted in the
+    /// meantime, or <c>412 Precondition Failed</c> if it does not have the expected version (anymore).
     /// </returns>
     private async Task<ActionResult<AddressResponse>> SanitizeValidateAndUpdateAsync(
         Guid id,
+        long? expectedVersion,
         UpdateAddressRequest request,
         CancellationToken cancellationToken)
     {
@@ -353,8 +473,56 @@ public sealed class AddressesController(
         }
 
         AddressChangeResult result =
-            await _addressService.UpdateAsync(id, expectedVersion: null, sanitizedRequest, cancellationToken);
+            await _addressService.UpdateAsync(id, expectedVersion, sanitizedRequest, cancellationToken);
+        if (!result.IsSuccess)
+        {
+            return result.Status == ChangeStatus.NotFound ? NotFound() : VersionMismatchProblem();
+        }
 
-        return result.IsSuccess ? Ok(result.Address) : NotFound();
+        Response.Headers.SetETag(result.Address.Version);
+
+        return Ok(result.Address);
     }
+
+    /// <summary>
+    /// Evaluates the <c>If-Match</c> header of the request against the <paramref name="currentVersion"/> of the
+    /// address (RFC 9110, section 13.1.1).
+    /// </summary>
+    /// <param name="currentVersion">The current version of the address.</param>
+    /// <param name="expectedVersion">
+    /// The version the change expects: the <paramref name="currentVersion"/> if the header contains its entity tag;
+    /// <see langword="null"/> if the header is <c>*</c> or the precondition fails.
+    /// </param>
+    /// <returns>
+    /// <see langword="null"/> if the change may continue; otherwise <c>428 Precondition Required</c>,
+    /// <c>400 Bad Request</c> or <c>412 Precondition Failed</c>.
+    /// </returns>
+    private ActionResult? CheckIfMatch(long currentVersion, out long? expectedVersion)
+    {
+        expectedVersion = null;
+        switch (Request.Headers.EvaluateIfMatch(currentVersion))
+        {
+            case IfMatchOutcome.Missing:
+                return Problem(detail: MissingIfMatchDetail, statusCode: StatusCodes.Status428PreconditionRequired);
+            case IfMatchOutcome.Invalid:
+            {
+                // Only the header is reported: the body is checked after the preconditions.
+                var errors = new ModelStateDictionary();
+                errors.AddModelError(HeaderNames.IfMatch, InvalidIfMatchError);
+
+                return ValidationProblem(errors);
+            }
+
+            case IfMatchOutcome.NotMatched:
+                return VersionMismatchProblem();
+            case IfMatchOutcome.Matched:
+                expectedVersion = currentVersion;
+                return null;
+            default:
+                return null;
+        }
+    }
+
+    private ObjectResult VersionMismatchProblem() =>
+        Problem(detail: VersionMismatchDetail, statusCode: StatusCodes.Status412PreconditionFailed);
 }
