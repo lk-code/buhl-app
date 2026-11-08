@@ -85,12 +85,25 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public Task<AddressResponse?> UpdateAsync(
+    public async Task<AddressResponse?> UpdateAsync(
         Guid id,
         UpdateAddressRequest request,
         CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(request);
+
+        Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            LogAddressNotFound(_logger, id);
+            return null;
+        }
+
+        request.ApplyTo(address, _textNormalizer, _timeProvider);
+        await _addressRepository.UpdateAsync(address, cancellationToken);
+        LogAddressUpdated(_logger, id);
+
+        return address.ToResponse();
     }
 
     /// <inheritdoc />
@@ -117,4 +130,7 @@ public sealed partial class AddressService(
         int count,
         string? normalizedCity,
         string? normalizedPostalCode);
+
+    [LoggerMessage(EventId = 5, Level = LogLevel.Information, Message = "Updated address {AddressId}")]
+    private static partial void LogAddressUpdated(ILogger logger, Guid addressId);
 }
