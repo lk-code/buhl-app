@@ -3,6 +3,7 @@ using FluentValidation;
 using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
+using LKCode.AddressManagement.Service;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
 using LKCode.AddressManagement.Service.OpenApiTransformers;
 using Microsoft.AspNetCore.Mvc;
@@ -48,7 +49,8 @@ builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services
     .AddDomain()
     .AddCoreAddresses()
-    .AddData(builder.Configuration);
+    .AddData(builder.Configuration)
+    .AddAddressCaching(builder.Configuration);
 
 // System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used. MVC does not treat
 // non-nullable properties as implicitly required: requests are sanitized and then validated completely by

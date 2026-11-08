@@ -10,6 +10,7 @@ using LKCode.AddressManagement.Core.Addresses.Mappings;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Extensions;
+using LKCode.AddressManagement.Service.OutputCachePolicies;
 using LKCode.AddressManagement.Service.Preconditions;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
@@ -90,7 +91,8 @@ public sealed class AddressesController(
         (jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions)))
         .Value.JsonSerializerOptions.PropertyNamingPolicy;
 
-    private readonly IOutputCacheStore _outputCacheStore = outputCacheStore;
+    private readonly IOutputCacheStore _outputCacheStore =
+        outputCacheStore ?? throw new ArgumentNullException(nameof(outputCacheStore));
 
     /// <summary>
     /// Gets the address with the given id.
@@ -254,6 +256,9 @@ public sealed class AddressesController(
         }
 
         AddressResponse address = await _addressService.CreateAsync(sanitizedRequest, cancellationToken);
+
+        // A new address can appear on every page of the list; no cached single address is affected.
+        await _outputCacheStore.EvictByTagAsync(AddressCacheTags.List, cancellationToken);
         Response.Headers.SetETag(address.Version);
 
         return CreatedAtRoute(GetByIdRouteName, new { id = address.Id }, address);
@@ -509,13 +514,14 @@ public sealed class AddressesController(
         }
 
         ChangeStatus status = await _addressService.DeleteAsync(id, expectedVersion, cancellationToken);
-
-        return status switch
+        if (status != ChangeStatus.Success)
         {
-            ChangeStatus.Success => NoContent(),
-            ChangeStatus.NotFound => NotFound(),
-            _ => VersionMismatchProblem(),
-        };
+            return status == ChangeStatus.NotFound ? NotFound() : VersionMismatchProblem();
+        }
+
+        await EvictAddressAsync(id, cancellationToken);
+
+        return NoContent();
     }
 
     /// <summary>
@@ -555,9 +561,23 @@ public sealed class AddressesController(
             return result.Status == ChangeStatus.NotFound ? NotFound() : VersionMismatchProblem();
         }
 
+        await EvictAddressAsync(id, cancellationToken);
         Response.Headers.SetETag(result.Address.Version);
 
         return Ok(result.Address);
+    }
+
+    /// <summary>
+    /// Removes the cached responses that contain the changed or deleted address from the output cache: the address
+    /// itself and every page of the list.
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>A task that completes when the responses are removed.</returns>
+    private async Task EvictAddressAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await _outputCacheStore.EvictByTagAsync(AddressCacheTags.ForAddress(id), cancellationToken);
+        await _outputCacheStore.EvictByTagAsync(AddressCacheTags.List, cancellationToken);
     }
 
     /// <summary>
