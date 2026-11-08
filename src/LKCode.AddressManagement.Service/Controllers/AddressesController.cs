@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace LKCode.AddressManagement.Service.Controllers;
 
 /// <summary>
-/// The endpoints to create and read addresses.
+/// The endpoints to create, read and list addresses.
 /// </summary>
 /// <param name="addressService">The service that reads and stores the addresses.</param>
 /// <param name="createAddressValidator">The validator of the requests to create an address.</param>
@@ -69,6 +69,29 @@ public sealed class AddressesController(
 
         return address is null ? NotFound() : Ok(address);
     }
+
+    /// <summary>
+    /// Gets all addresses, optionally filtered by city and postal code.
+    /// </summary>
+    /// <param name="city">A part of the city to search for. Missing or blank to ignore the city.</param>
+    /// <param name="postalCode">
+    /// A part of the postal code to search for. Missing or blank to ignore the postal code.
+    /// </param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>The matching addresses; an empty list if none matches.</returns>
+    /// <remarks>
+    /// Both filters are optional and search for a part of the value, e.g. `sol` finds `Solingen`. They are compared
+    /// with normalized values: the case, surrounding whitespace and accents do not matter, umlauts and their
+    /// spellings with `e` are the same (`Koeln` finds `Köln`), and spaces in postal codes are ignored. If both filters
+    /// are given, an address must match both. The order of the addresses is not specified.
+    /// </remarks>
+    /// <response code="200">The matching addresses; an empty array if none matches.</response>
+    /// <response code="500">An unexpected error occurred.</response>
+    [HttpGet]
+    public Task<ActionResult<IReadOnlyList<AddressResponse>>> GetListAsync(
+        [FromQuery] string? city,
+        [FromQuery] string? postalCode,
+        CancellationToken cancellationToken) => throw new NotImplementedException();
 
     // The parameter "request" is documented last: the OpenAPI XML comment generator of .NET 10 writes the
     // description of every parameter that is no operation parameter, including the cancellation token, to the
