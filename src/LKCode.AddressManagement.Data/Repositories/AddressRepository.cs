@@ -45,8 +45,11 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     }
 
     /// <inheritdoc />
-    public Task DeleteAsync(Address address, CancellationToken cancellationToken)
+    public async Task DeleteAsync(Address address, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(address);
+
+        _dbContext.Addresses.Remove(address);
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 }
