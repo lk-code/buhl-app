@@ -12,6 +12,11 @@ namespace LKCode.AddressManagement.Core.Addresses.Validators;
 /// </remarks>
 public static class CountryCodes
 {
+    /// <summary>
+    /// The format of a country code: exactly two uppercase letters.
+    /// </summary>
+    public const string Pattern = "^[A-Z]{2}$";
+
     private static readonly FrozenSet<string> _codes = FrozenSet.Create(
         StringComparer.Ordinal,
         "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU", "AW", "AX", "AZ",

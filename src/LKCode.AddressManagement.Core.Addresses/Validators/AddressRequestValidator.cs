@@ -29,7 +29,11 @@ public abstract class AddressRequestValidator<TRequest> : AbstractValidator<TReq
         RuleForRequiredText(request => request.HouseNumber, AddressConstraints.HouseNumberMaxLength);
         RuleForRequiredText(request => request.PostalCode, AddressConstraints.PostalCodeMaxLength);
         RuleForRequiredText(request => request.City, AddressConstraints.CityMaxLength);
-        RuleForRequiredText(request => request.Country, AddressConstraints.CountryMaxLength);
+        RuleForRequiredText(request => request.Country, AddressConstraints.CountryMaxLength)
+            .Matches(CountryCodes.Pattern)
+            .WithMessage("'{PropertyName}' must consist of exactly two uppercase letters.")
+            .Must(CountryCodes.IsValid)
+            .WithMessage("'{PropertyName}' must be an assigned ISO 3166-1 alpha-2 country code.");
 
         RuleFor(request => request.Email)
             .MaximumLength(AddressConstraints.EmailMaxLength);
