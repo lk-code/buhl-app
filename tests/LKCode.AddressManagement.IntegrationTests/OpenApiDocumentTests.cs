@@ -16,6 +16,8 @@ public class OpenApiDocumentTests
     private const string JsonMediaType = "application/json";
     private const string ProblemDetailsMediaType = "application/problem+json";
     private const string SchemaReferencePrefix = "#/components/schemas/";
+    private const string ProblemDetailsSchema = "ProblemDetails";
+    private const string ValidationProblemDetailsSchema = "ValidationProblemDetails";
 
     private static readonly (string Path, string Method)[] _operations =
     [
@@ -127,7 +129,7 @@ public class OpenApiDocumentTests
         // Assert
         errorResponses.Should().NotBeEmpty().And.AllSatisfy(response =>
         {
-            string schema = response.Name == "400" ? "ValidationProblemDetails" : "ProblemDetails";
+            string schema = response.Name == "400" ? ValidationProblemDetailsSchema : ProblemDetailsSchema;
             JsonElement content = response.Value.GetProperty("content");
             GetNames(content).Should().Equal(ProblemDetailsMediaType);
             GetSchemaReference(content.GetProperty(ProblemDetailsMediaType))
@@ -178,8 +180,8 @@ public class OpenApiDocumentTests
             "AddressResponse",
             "CreateAddressRequest",
             "UpdateAddressRequest",
-            "ProblemDetails",
-            "ValidationProblemDetails");
+            ProblemDetailsSchema,
+            ValidationProblemDetailsSchema);
     }
 
     [Test]
@@ -194,9 +196,119 @@ public class OpenApiDocumentTests
                 .Select(name => SchemaReferencePrefix + name));
     }
 
+    [TestCase(ProblemDetailsSchema)]
+    [TestCase(ValidationProblemDetailsSchema)]
+    public void ProblemDetailsSchema_Properties_AreMembersOfRfc9457AndTraceId(string schemaName)
+    {
+        // Act
+        JsonElement properties = GetSchema(schemaName).GetProperty("properties");
+
+        // Assert
+        GetNames(properties).Should().BeEquivalentTo(
+            WithErrorsOfValidation(schemaName, ["type", "title", "status", "detail", "instance", "traceId"]));
+    }
+
+    [TestCase(ProblemDetailsSchema)]
+    [TestCase(ValidationProblemDetailsSchema)]
+    public void ProblemDetailsSchema_Required_AreMembersOfEveryResponse(string schemaName)
+    {
+        // Act
+        JsonElement required = GetSchema(schemaName).GetProperty("required");
+
+        // Assert
+        required.EnumerateArray().Select(name => name.GetString()).Should().BeEquivalentTo(
+            WithErrorsOfValidation(schemaName, ["type", "title", "status", "traceId"]));
+    }
+
+    [TestCase(ProblemDetailsSchema)]
+    [TestCase(ValidationProblemDetailsSchema)]
+    public void ProblemDetailsSchema_Status_IsHttpStatusCode(string schemaName)
+    {
+        // Act
+        JsonElement status = GetSchema(schemaName).GetProperty("properties").GetProperty("status");
+
+        // Assert
+        GetTypes(status).Should().Equal("integer");
+        status.GetProperty("format").GetString().Should().Be("int32");
+        status.GetProperty("minimum").GetInt32().Should().Be(100);
+        status.GetProperty("maximum").GetInt32().Should().Be(599);
+        status.TryGetProperty("pattern", out _).Should().BeFalse();
+    }
+
+    [TestCaseSource(nameof(StringMembersOfProblemDetailsSchemas))]
+    public void ProblemDetailsSchema_StringMember_HasTypesAndFormat(
+        string schemaName,
+        string name,
+        string[] types,
+        string? format)
+    {
+        // Act
+        JsonElement member = GetSchema(schemaName).GetProperty("properties").GetProperty(name);
+
+        // Assert
+        GetTypes(member).Should().BeEquivalentTo(types);
+        (member.TryGetProperty("format", out JsonElement value) ? value.GetString() : null).Should().Be(format);
+        member.TryGetProperty("pattern", out _).Should().BeFalse();
+    }
+
+    [TestCase(ProblemDetailsSchema)]
+    [TestCase(ValidationProblemDetailsSchema)]
+    public void ProblemDetailsSchema_Members_HaveDescription(string schemaName)
+    {
+        // Act
+        JsonElement properties = GetSchema(schemaName).GetProperty("properties");
+
+        // Assert
+        properties.EnumerateObject().Should().AllSatisfy(member =>
+            member.Value.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace());
+    }
+
+    [Test]
+    public void ValidationProblemDetailsSchema_Errors_AreMessagesPerField()
+    {
+        // Act
+        JsonElement errors =
+            GetSchema(ValidationProblemDetailsSchema).GetProperty("properties").GetProperty("errors");
+
+        // Assert
+        GetTypes(errors).Should().Equal("object");
+        JsonElement messages = errors.GetProperty("additionalProperties");
+        GetTypes(messages).Should().Equal("array");
+        GetTypes(messages.GetProperty("items")).Should().Equal("string");
+    }
+
     private static IEnumerable<TestCaseData> Operations() =>
         _operations.Select(operation => new TestCaseData(operation.Path, operation.Method)
             .SetArgDisplayNames(operation.Method, operation.Path));
+
+    private static IEnumerable<TestCaseData> StringMembersOfProblemDetailsSchemas()
+    {
+        (string Name, string[] Types, string? Format)[] members =
+        [
+            ("type", ["string"], "uri-reference"),
+            ("title", ["string"], null),
+            ("detail", ["null", "string"], null),
+            ("instance", ["null", "string"], "uri-reference"),
+            ("traceId", ["string"], null),
+        ];
+        string[] schemaNames = [ProblemDetailsSchema, ValidationProblemDetailsSchema];
+
+        return schemaNames.SelectMany(schemaName => members.Select(member =>
+            new TestCaseData(schemaName, member.Name, member.Types, member.Format)
+                .SetArgDisplayNames(schemaName, member.Name)));
+    }
+
+    private static string[] WithErrorsOfValidation(string schemaName, string[] members) =>
+        schemaName == ValidationProblemDetailsSchema ? [.. members, "errors"] : members;
+
+    private static IEnumerable<string?> GetTypes(JsonElement schema)
+    {
+        JsonElement type = schema.GetProperty("type");
+
+        return type.ValueKind == JsonValueKind.Array
+            ? type.EnumerateArray().Select(item => item.GetString())
+            : [type.GetString()];
+    }
 
     private static bool IsErrorStatusCode(string statusCode) =>
         statusCode.StartsWith('4') || statusCode.StartsWith('5');
@@ -230,4 +342,7 @@ public class OpenApiDocumentTests
 
     private JsonElement GetOperation(string path, string method) =>
         _document.GetProperty("paths").GetProperty(path).GetProperty(method);
+
+    private JsonElement GetSchema(string name) =>
+        _document.GetProperty("components").GetProperty("schemas").GetProperty(name);
 }

@@ -379,37 +379,6 @@ public class AddressesOpenApiTests
         operation.TryGetProperty("requestBody", out _).Should().BeFalse();
     }
 
-    [Test]
-    public void ProblemDetailsSchema_Properties_AreMembersOfRfc9457()
-    {
-        // Act
-        JsonElement schema = GetSchema("ProblemDetails");
-
-        // Assert
-        GetNames(schema.GetProperty("properties")).Should().BeEquivalentTo(
-            "type",
-            "title",
-            "status",
-            "detail",
-            "instance");
-    }
-
-    [Test]
-    public void ValidationProblemDetailsSchema_Errors_AreMessagesPerField()
-    {
-        // Act
-        JsonElement schema = GetSchema("ValidationProblemDetails");
-
-        // Assert
-        GetNames(schema.GetProperty("properties")).Should().Contain(
-            ["type", "title", "status", "detail", "instance", "errors"]);
-        JsonElement errors = schema.GetProperty("properties").GetProperty("errors");
-        errors.GetProperty("type").GetString().Should().Be("object");
-        JsonElement messages = errors.GetProperty("additionalProperties");
-        messages.GetProperty("type").GetString().Should().Be("array");
-        messages.GetProperty("items").GetProperty("type").GetString().Should().Be("string");
-    }
-
     [TestCase("CreateAddressRequest")]
     [TestCase("UpdateAddressRequest")]
     public void AddressRequestSchema_Required_AreAllValuesExceptEmail(string schemaName)
