@@ -413,6 +413,190 @@ public class AddressServiceTests
         await _addressRepository.DidNotReceiveWithAnyArgs().ListAsync(default, default, default);
     }
 
+    [Test]
+    public async Task UpdateAsync_KnownId_ChangesAllValuesAndSavesAddress()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+
+        // Assert
+        AddressInput.From(address).Should().Be(AddressInput.Changed);
+        await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task UpdateAsync_KnownId_KeepsIdAndCreatedAtAndUpdatesUpdatedAtAndNormalizedFields()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        Guid id = address.Id;
+        _timeProvider.GetUtcNow().Returns(_startTime.AddHours(2));
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        await _service.UpdateAsync(id, request, CancellationToken.None);
+
+        // Assert
+        address.Id.Should().Be(id);
+        address.CreatedAt.Should().Be(_startTime);
+        address.UpdatedAt.Should().Be(_startTime.AddHours(2));
+        address.NormalizedCity.Should().Be("city:London");
+        address.NormalizedPostalCode.Should().Be("postal:SW1A 1AA");
+    }
+
+    [Test]
+    public async Task UpdateAsync_KnownId_ReturnsResponseOfUpdatedAddress()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        _timeProvider.GetUtcNow().Returns(_startTime.AddHours(2));
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        AddressResponse? response = await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+
+        // Assert
+        response.Should().Be(new AddressResponse(
+            address.Id,
+            "Max",
+            "Musterfrau",
+            "Hauptstraße",
+            "4a",
+            "SW1A 1AA",
+            "London",
+            "GB",
+            "max.musterfrau@example.org",
+            _startTime,
+            _startTime.AddHours(2)));
+    }
+
+    [Test]
+    public async Task UpdateAsync_RequestWithoutEmail_RemovesEmail()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = (AddressInput.Changed with { Email = null }).ToUpdateRequest();
+
+        // Act
+        AddressResponse? response = await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+
+        // Assert
+        address.Email.Should().BeNull();
+        response!.Email.Should().BeNull();
+    }
+
+    [Test]
+    public async Task UpdateAsync_UnknownId_ReturnsNullAndSavesNothing()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        AddressResponse? response = await _service.UpdateAsync(id, request, CancellationToken.None);
+
+        // Assert
+        response.Should().BeNull();
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
+    }
+
+    [Test]
+    public async Task UpdateAsync_KnownId_PassesIdAndCancellationToken()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _service.UpdateAsync(address.Id, request, cancellationTokenSource.Token);
+
+        // Assert
+        await _addressRepository.Received(1).GetByIdAsync(address.Id, cancellationTokenSource.Token);
+        await _addressRepository.Received(1).UpdateAsync(address, cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task UpdateAsync_KnownId_LogsUpdatedAddress()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        await _service.UpdateAsync(address.Id, request, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Information, 5, $"Updated address {address.Id}", address.Id);
+    }
+
+    [Test]
+    public async Task UpdateAsync_UnknownId_LogsNotFound()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        await _service.UpdateAsync(id, request, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {id} was not found", id);
+    }
+
+    [Test]
+    public async Task UpdateAsync_SavingCanceled_ThrowsOperationCanceledExceptionAndLogsNothing()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+        _addressRepository.UpdateAsync(address, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        // Act
+        Func<Task> act = () => _service.UpdateAsync(address.Id, request, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        _logger.Collector.Count.Should().Be(0);
+    }
+
+    [Test]
+    public async Task UpdateAsync_InvalidRequest_ThrowsArgumentExceptionAndLeavesAddressUnsaved()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = (AddressInput.Changed with { City = "" }).ToUpdateRequest();
+
+        // Act
+        Func<Task> act = () => _service.UpdateAsync(address.Id, request, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentException>().WithParameterName("city");
+        AddressInput.From(address).Should().Be(AddressInput.Valid);
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
+        _logger.Collector.Count.Should().Be(0);
+    }
+
+    [Test]
+    public async Task UpdateAsync_NullRequest_ThrowsArgumentNullExceptionWithoutLoading()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        UpdateAddressRequest request = null!;
+
+        // Act
+        Func<Task> act = () => _service.UpdateAsync(address.Id, request, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("request");
+        await _addressRepository.DidNotReceiveWithAnyArgs().GetByIdAsync(default, default);
+    }
+
     /// <summary>
     /// Creates an address with the given values and lets the repository return it for its id. Unknown ids return
     /// <see langword="null"/>.
