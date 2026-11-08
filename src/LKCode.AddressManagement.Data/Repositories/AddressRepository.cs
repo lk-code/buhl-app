@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
@@ -24,26 +25,38 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     public async Task<IReadOnlyList<Address>> ListAsync(
         string? normalizedCity,
         string? normalizedPostalCode,
-        CancellationToken cancellationToken)
-    {
-        IQueryable<Address> query = _dbContext.Addresses.AsNoTracking();
-
-        if (!string.IsNullOrWhiteSpace(normalizedCity))
-        {
-            query = query.Where(address => address.NormalizedCity.Contains(normalizedCity));
-        }
-
-        if (!string.IsNullOrWhiteSpace(normalizedPostalCode))
-        {
-            query = query.Where(address => address.NormalizedPostalCode.Contains(normalizedPostalCode));
-        }
-
-        return await query.ToListAsync(cancellationToken);
-    }
+        CancellationToken cancellationToken) =>
+        await Filter(normalizedCity, normalizedPostalCode).ToListAsync(cancellationToken);
 
     /// <inheritdoc />
-    public Task<AddressPage> ListAsync(AddressListCriteria criteria, CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+    /// <remarks>
+    /// Two queries run in the database: one counts the matching addresses, the other loads only the addresses of the
+    /// page by sorting, skipping and taking on the <see cref="IQueryable{T}"/>. The second query is skipped if the
+    /// page is behind the end; this also prevents an overflow of the number of skipped addresses.
+    /// </remarks>
+    public async Task<AddressPage> ListAsync(AddressListCriteria criteria, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(criteria);
+        ArgumentOutOfRangeException.ThrowIfLessThan(criteria.Page, AddressListConstraints.MinPage);
+        ArgumentOutOfRangeException.ThrowIfLessThan(criteria.PageSize, AddressListConstraints.MinPageSize);
+
+        IQueryable<Address> filtered = Filter(criteria.NormalizedCity, criteria.NormalizedPostalCode);
+        IQueryable<Address> sorted = Sort(filtered, criteria.SortBy, criteria.SortDirection);
+
+        int totalCount = await filtered.CountAsync(cancellationToken);
+        long skip = (long)(criteria.Page - 1) * criteria.PageSize;
+        if (skip >= totalCount)
+        {
+            return new AddressPage([], totalCount);
+        }
+
+        List<Address> addresses = await sorted
+            .Skip((int)skip)
+            .Take(criteria.PageSize)
+            .ToListAsync(cancellationToken);
+
+        return new AddressPage(addresses, totalCount);
+    }
 
     /// <inheritdoc />
     public async Task AddAsync(Address address, CancellationToken cancellationToken)
@@ -62,6 +75,67 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
         EntityEntry<Address> entry = _dbContext.Addresses.Update(address);
 
         return SaveWithExpectedVersionAsync(entry, expectedVersion, cancellationToken);
+    }
+
+    /// <summary>
+    /// Sorts the <paramref name="query"/> by the <paramref name="sortBy"/> field and then by the id, both in the
+    /// <paramref name="direction"/>, so that addresses with the same value always have the same order.
+    /// </summary>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// <paramref name="sortBy"/> or <paramref name="direction"/> is not defined.
+    /// </exception>
+    private static IOrderedQueryable<Address> Sort(
+        IQueryable<Address> query,
+        AddressSortField sortBy,
+        SortDirection direction) =>
+        sortBy switch
+        {
+            AddressSortField.LastName => Sort(query, address => address.LastName, direction),
+            AddressSortField.FirstName => Sort(query, address => address.FirstName, direction),
+            AddressSortField.City => Sort(query, address => address.City, direction),
+            AddressSortField.PostalCode => Sort(query, address => address.PostalCode, direction),
+            AddressSortField.Country => Sort(query, address => address.Country, direction),
+            AddressSortField.CreatedAt => Sort(query, address => address.CreatedAt, direction),
+            AddressSortField.UpdatedAt => Sort(query, address => address.UpdatedAt, direction),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(sortBy),
+                sortBy,
+                $"The value is no defined {nameof(AddressSortField)}."),
+        };
+
+    private static IOrderedQueryable<Address> Sort<TKey>(
+        IQueryable<Address> query,
+        Expression<Func<Address, TKey>> key,
+        SortDirection direction) =>
+        direction switch
+        {
+            SortDirection.Ascending => query.OrderBy(key).ThenBy(address => address.Id),
+            SortDirection.Descending => query.OrderByDescending(key).ThenByDescending(address => address.Id),
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(direction),
+                direction,
+                $"The value is no defined {nameof(SortDirection)}."),
+        };
+
+    /// <summary>
+    /// Builds the untracked query of the active addresses whose normalized city and normalized postal code contain the
+    /// given values; a blank value is ignored.
+    /// </summary>
+    private IQueryable<Address> Filter(string? normalizedCity, string? normalizedPostalCode)
+    {
+        IQueryable<Address> query = _dbContext.Addresses.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(normalizedCity))
+        {
+            query = query.Where(address => address.NormalizedCity.Contains(normalizedCity));
+        }
+
+        if (!string.IsNullOrWhiteSpace(normalizedPostalCode))
+        {
+            query = query.Where(address => address.NormalizedPostalCode.Contains(normalizedPostalCode));
+        }
+
+        return query;
     }
 
     /// <summary>
