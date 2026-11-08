@@ -95,6 +95,7 @@ public class AddressConfigurationTests
     [TestCase(nameof(Address.NormalizedPostalCode))]
     [TestCase(nameof(Address.CreatedAt))]
     [TestCase(nameof(Address.UpdatedAt))]
+    [TestCase(nameof(Address.Version))]
     public void Configure_RequiredProperty_IsNotNullable(string propertyName)
     {
         // Arrange
@@ -105,6 +106,35 @@ public class AddressConfigurationTests
 
         // Assert
         property.IsNullable.Should().BeFalse();
+    }
+
+    [Test]
+    public void Configure_Version_IsConcurrencyTokenSetByApplication()
+    {
+        // Arrange
+        IEntityType entityType = GetAddressEntityType();
+
+        // Act
+        IProperty property = GetProperty(entityType, nameof(Address.Version));
+
+        // Assert
+        property.IsConcurrencyToken.Should().BeTrue();
+        property.ValueGenerated.Should().Be(ValueGenerated.Never);
+    }
+
+    [Test]
+    public void Configure_Address_HasOnlyVersionAsConcurrencyToken()
+    {
+        // Arrange
+        IEntityType entityType = GetAddressEntityType();
+
+        // Act
+        IEnumerable<string> concurrencyTokens = entityType.GetProperties()
+            .Where(property => property.IsConcurrencyToken)
+            .Select(property => property.Name);
+
+        // Assert
+        concurrencyTokens.Should().Equal(nameof(Address.Version));
     }
 
     [Test]
