@@ -59,6 +59,33 @@ public class AddressesOpenApiTests
     }
 
     [Test]
+    public void PostOperation_CreatedResponse_HasRequiredLocationHeaderWithUri()
+    {
+        // Act
+        JsonElement headers = GetPostOperation().GetProperty("responses").GetProperty("201").GetProperty("headers");
+
+        // Assert
+        GetNames(headers).Should().Equal("Location");
+        JsonElement location = headers.GetProperty("Location");
+        location.GetProperty("required").GetBoolean().Should().BeTrue();
+        location.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        location.GetProperty("schema").GetProperty("type").GetString().Should().Be("string");
+        location.GetProperty("schema").GetProperty("format").GetString().Should().Be("uri");
+    }
+
+    [TestCase("400")]
+    [TestCase("415")]
+    [TestCase("500")]
+    public void PostOperation_ErrorResponse_HasNoHeaders(string statusCode)
+    {
+        // Act
+        JsonElement response = GetPostOperation().GetProperty("responses").GetProperty(statusCode);
+
+        // Assert
+        response.TryGetProperty("headers", out _).Should().BeFalse();
+    }
+
+    [Test]
     public void PostOperation_RequestBody_IsRequiredJsonOfCreateAddressRequest()
     {
         // Act
