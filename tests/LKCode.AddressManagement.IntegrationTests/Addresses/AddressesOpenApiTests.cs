@@ -142,15 +142,10 @@ public class AddressesOpenApiTests
     public void GetByIdOperation_IdParameter_IsRequiredUuidInPath()
     {
         // Act
-        JsonElement parameter = GetGetByIdOperation().GetProperty("parameters").EnumerateArray()
-            .Should().ContainSingle().Which;
+        JsonElement parameters = GetGetByIdOperation().GetProperty("parameters");
 
         // Assert
-        parameter.GetProperty("name").GetString().Should().Be("id");
-        parameter.GetProperty("in").GetString().Should().Be("path");
-        parameter.GetProperty("required").GetBoolean().Should().BeTrue();
-        parameter.GetProperty("schema").GetProperty("type").GetString().Should().Be("string");
-        parameter.GetProperty("schema").GetProperty("format").GetString().Should().Be("uuid");
+        AssertIsIdParameter(parameters);
     }
 
     [Test]
@@ -241,6 +236,150 @@ public class AddressesOpenApiTests
     }
 
     [Test]
+    public void PutOperation_OperationId_IsUpdateAddress()
+    {
+        // Act
+        JsonElement operation = GetPutOperation();
+
+        // Assert
+        operation.GetProperty("operationId").GetString().Should().Be("UpdateAddress");
+    }
+
+    [Test]
+    public void PutOperation_Responses_ContainAllStatusCodes()
+    {
+        // Act
+        JsonElement responses = GetPutOperation().GetProperty("responses");
+
+        // Assert
+        GetNames(responses).Should().BeEquivalentTo("200", "400", "404", "415", "500");
+    }
+
+    [TestCase("200", JsonMediaType, "AddressResponse")]
+    [TestCase("400", ProblemDetailsMediaType, "ValidationProblemDetails")]
+    [TestCase("404", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("415", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("500", ProblemDetailsMediaType, "ProblemDetails")]
+    public void PutOperation_Response_HasOnlyMediaTypeWithSchema(string statusCode, string mediaType, string schema)
+    {
+        // Act
+        JsonElement response = GetPutOperation().GetProperty("responses").GetProperty(statusCode);
+
+        // Assert
+        response.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        JsonElement content = response.GetProperty("content");
+        GetNames(content).Should().Equal(mediaType);
+        GetSchemaReference(content.GetProperty(mediaType)).Should().Be(SchemaReferencePrefix + schema);
+    }
+
+    [TestCase("200")]
+    [TestCase("400")]
+    [TestCase("404")]
+    [TestCase("415")]
+    [TestCase("500")]
+    public void PutOperation_Response_HasNoHeaders(string statusCode)
+    {
+        // Act
+        JsonElement response = GetPutOperation().GetProperty("responses").GetProperty(statusCode);
+
+        // Assert
+        response.TryGetProperty("headers", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void PutOperation_RequestBody_IsRequiredJsonOfUpdateAddressRequest()
+    {
+        // Act
+        JsonElement requestBody = GetPutOperation().GetProperty("requestBody");
+
+        // Assert
+        requestBody.GetProperty("required").GetBoolean().Should().BeTrue();
+        requestBody.GetProperty("description").GetString().Should().Be("The new values of the address.");
+        JsonElement content = requestBody.GetProperty("content");
+        GetNames(content).Should().BeEquivalentTo(JsonMediaType, "application/*+json");
+        content.EnumerateObject().Should().AllSatisfy(mediaType =>
+            GetSchemaReference(mediaType.Value).Should().Be(SchemaReferencePrefix + "UpdateAddressRequest"));
+    }
+
+    [Test]
+    public void PutOperation_IdParameter_IsRequiredUuidInPath()
+    {
+        // Act
+        JsonElement parameters = GetPutOperation().GetProperty("parameters");
+
+        // Assert
+        AssertIsIdParameter(parameters);
+    }
+
+    [Test]
+    public void DeleteOperation_OperationId_IsDeleteAddress()
+    {
+        // Act
+        JsonElement operation = GetDeleteOperation();
+
+        // Assert
+        operation.GetProperty("operationId").GetString().Should().Be("DeleteAddress");
+    }
+
+    [Test]
+    public void DeleteOperation_Responses_ContainAllStatusCodes()
+    {
+        // Act
+        JsonElement responses = GetDeleteOperation().GetProperty("responses");
+
+        // Assert
+        GetNames(responses).Should().BeEquivalentTo("204", "404", "500");
+    }
+
+    [Test]
+    public void DeleteOperation_NoContentResponse_HasNoContentAndNoHeaders()
+    {
+        // Act
+        JsonElement response = GetDeleteOperation().GetProperty("responses").GetProperty("204");
+
+        // Assert
+        response.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        response.TryGetProperty("content", out _).Should().BeFalse();
+        response.TryGetProperty("headers", out _).Should().BeFalse();
+    }
+
+    [TestCase("404")]
+    [TestCase("500")]
+    public void DeleteOperation_ErrorResponse_HasOnlyProblemDetailsWithoutHeaders(string statusCode)
+    {
+        // Act
+        JsonElement response = GetDeleteOperation().GetProperty("responses").GetProperty(statusCode);
+
+        // Assert
+        response.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        response.TryGetProperty("headers", out _).Should().BeFalse();
+        JsonElement content = response.GetProperty("content");
+        GetNames(content).Should().Equal(ProblemDetailsMediaType);
+        GetSchemaReference(content.GetProperty(ProblemDetailsMediaType))
+            .Should().Be(SchemaReferencePrefix + "ProblemDetails");
+    }
+
+    [Test]
+    public void DeleteOperation_IdParameter_IsRequiredUuidInPath()
+    {
+        // Act
+        JsonElement parameters = GetDeleteOperation().GetProperty("parameters");
+
+        // Assert
+        AssertIsIdParameter(parameters);
+    }
+
+    [Test]
+    public void DeleteOperation_RequestBody_DoesNotExist()
+    {
+        // Act
+        JsonElement operation = GetDeleteOperation();
+
+        // Assert
+        operation.TryGetProperty("requestBody", out _).Should().BeFalse();
+    }
+
+    [Test]
     public void ProblemDetailsSchema_Properties_AreMembersOfRfc9457()
     {
         // Act
@@ -271,11 +410,12 @@ public class AddressesOpenApiTests
         messages.GetProperty("items").GetProperty("type").GetString().Should().Be("string");
     }
 
-    [Test]
-    public void CreateAddressRequestSchema_Required_AreAllValuesExceptEmail()
+    [TestCase("CreateAddressRequest")]
+    [TestCase("UpdateAddressRequest")]
+    public void AddressRequestSchema_Required_AreAllValuesExceptEmail(string schemaName)
     {
         // Act
-        JsonElement schema = GetSchema("CreateAddressRequest");
+        JsonElement schema = GetSchema(schemaName);
 
         // Assert
         schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).Should().BeEquivalentTo(
@@ -317,6 +457,7 @@ public class AddressesOpenApiTests
     }
 
     [TestCase("CreateAddressRequest")]
+    [TestCase("UpdateAddressRequest")]
     [TestCase("AddressResponse")]
     public void AddressSchema_Country_HasPatternOfTwoUppercaseLetters(string schemaName)
     {
@@ -328,6 +469,7 @@ public class AddressesOpenApiTests
     }
 
     [TestCase("CreateAddressRequest")]
+    [TestCase("UpdateAddressRequest")]
     [TestCase("AddressResponse")]
     public void AddressSchema_Email_IsNullableEmailWithMaxLength(string schemaName)
     {
@@ -365,11 +507,21 @@ public class AddressesOpenApiTests
             ("city", 1, AddressConstraints.CityMaxLength),
             ("country", 2, AddressConstraints.CountryMaxLength),
         ];
-        string[] schemaNames = ["CreateAddressRequest", "AddressResponse"];
+        string[] schemaNames = ["CreateAddressRequest", "UpdateAddressRequest", "AddressResponse"];
 
         return schemaNames.SelectMany(schemaName => values.Select(value =>
             new TestCaseData(schemaName, value.Name, value.MinLength, value.MaxLength)
                 .SetArgDisplayNames(schemaName, value.Name)));
+    }
+
+    private static void AssertIsIdParameter(JsonElement parameters)
+    {
+        JsonElement parameter = parameters.EnumerateArray().Should().ContainSingle().Which;
+        parameter.GetProperty("name").GetString().Should().Be("id");
+        parameter.GetProperty("in").GetString().Should().Be("path");
+        parameter.GetProperty("required").GetBoolean().Should().BeTrue();
+        parameter.GetProperty("schema").GetProperty("type").GetString().Should().Be("string");
+        parameter.GetProperty("schema").GetProperty("format").GetString().Should().Be("uuid");
     }
 
     private static IEnumerable<string?> GetTypes(JsonElement schema)
@@ -395,6 +547,12 @@ public class AddressesOpenApiTests
 
     private JsonElement GetGetByIdOperation() =>
         _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("get");
+
+    private JsonElement GetPutOperation() =>
+        _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("put");
+
+    private JsonElement GetDeleteOperation() =>
+        _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("delete");
 
     private JsonElement GetSchema(string name) =>
         _document.GetProperty("components").GetProperty("schemas").GetProperty(name);
