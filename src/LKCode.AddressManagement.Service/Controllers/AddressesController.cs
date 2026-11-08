@@ -1,6 +1,8 @@
+using FluentValidation;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 
 namespace LKCode.AddressManagement.Service.Controllers;
 
@@ -8,13 +10,24 @@ namespace LKCode.AddressManagement.Service.Controllers;
 /// The endpoints to create and read addresses.
 /// </summary>
 /// <param name="addressService">The service that reads and stores the addresses.</param>
+/// <param name="createAddressValidator">The validator of the requests to create an address.</param>
+/// <param name="jsonOptions">
+/// The JSON options of the controllers; their naming policy converts the property names of validation errors.
+/// </param>
 /// <exception cref="ArgumentNullException">A parameter is <see langword="null"/>.</exception>
 [ApiController]
 [Route("api/addresses")]
-public sealed class AddressesController(IAddressService addressService) : ControllerBase
+public sealed class AddressesController(
+    IAddressService addressService,
+    IValidator<CreateAddressRequest> createAddressValidator,
+    IOptions<JsonOptions> jsonOptions) : ControllerBase
 {
     private readonly IAddressService _addressService =
         addressService ?? throw new ArgumentNullException(nameof(addressService));
+
+    private readonly IValidator<CreateAddressRequest> _createAddressValidator = createAddressValidator;
+
+    private readonly IOptions<JsonOptions> _jsonOptions = jsonOptions;
 
     /// <summary>
     /// Gets the address with the given id.
@@ -33,4 +46,20 @@ public sealed class AddressesController(IAddressService addressService) : Contro
 
         return address is null ? NotFound() : Ok(address);
     }
+
+    /// <summary>
+    /// Creates a new address.
+    /// </summary>
+    /// <param name="request">The values of the new address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>
+    /// <c>201 Created</c> with the new address and its URL in the <c>Location</c> header, or
+    /// <c>400 Bad Request</c> with all validation errors.
+    /// </returns>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
+    [HttpPost]
+    public Task<ActionResult<AddressResponse>> CreateAsync(
+        CreateAddressRequest request,
+        CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 }

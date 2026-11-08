@@ -20,4 +20,15 @@ public static class AddressManagementWebApplicationFactoryExtensions
 
         return await addressService.CreateAsync(request, CancellationToken.None);
     }
+
+    public static async Task<IReadOnlyList<AddressResponse>> ListAddressesAsync(
+        this AddressManagementWebApplicationFactory factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        IAddressService addressService = scope.ServiceProvider.GetRequiredService<IAddressService>();
+
+        return await addressService.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+    }
 }
