@@ -19,11 +19,16 @@ dotnet run --project src/LKCode.AddressManagement.Service
 ## Tests und Coverage
 
 ```bash
-dotnet test                # alle Tests
-dotnet run coverage.cs     # Tests mit Coverage, Ausgabe gesamt und pro Projekt
+dotnet test                                  # alle Tests
+dotnet run coverage.cs                       # Tests mit Coverage, Ausgabe gesamt und pro Projekt
+dotnet run coverage.cs -- --threshold 90     # zusätzlich Mindestabdeckung prüfen (wie in der CI)
 ```
 
-Der HTML-Report liegt danach unter `coverage/report/index.html`. Die CI verlangt mindestens 90 % Line-Coverage.
+Der HTML-Report liegt danach unter `coverage/report/index.html`. Mit `--threshold` schlägt das Skript fehl, wenn die gesamte Line-Coverage unter dem Wert liegt; solange es keinen abdeckbaren Code gibt, wird die Prüfung übersprungen.
+
+## CI
+
+Der Workflow [`build-test.yml`](.github/workflows/build-test.yml) läuft bei jedem Push auf `main` und jedem Pull Request gegen `main`: Build mit Warnungen als Fehler, danach `coverage.cs` mit mindestens 90 % Line-Coverage. Die Coverage-Zusammenfassung steht in der Job-Summary, der HTML-Report liegt als Artefakt `coverage-report` bereit. Neuere Läufe desselben Branches brechen laufende ab.
 
 ## Architektur
 
