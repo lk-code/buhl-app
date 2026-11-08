@@ -88,10 +88,16 @@ public sealed class AddressesController(
     /// <response code="200">The matching addresses; an empty array if none matches.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet]
-    public Task<ActionResult<IReadOnlyList<AddressResponse>>> GetListAsync(
+    public async Task<ActionResult<IReadOnlyList<AddressResponse>>> GetListAsync(
         [FromQuery] string? city,
         [FromQuery] string? postalCode,
-        CancellationToken cancellationToken) => throw new NotImplementedException();
+        CancellationToken cancellationToken)
+    {
+        IReadOnlyList<AddressResponse> addresses =
+            await _addressService.GetListAsync(new AddressListQuery(city, postalCode), cancellationToken);
+
+        return Ok(addresses);
+    }
 
     // The parameter "request" is documented last: the OpenAPI XML comment generator of .NET 10 writes the
     // description of every parameter that is no operation parameter, including the cancellation token, to the
