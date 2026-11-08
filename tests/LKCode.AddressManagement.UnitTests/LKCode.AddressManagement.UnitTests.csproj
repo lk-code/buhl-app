@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LKCode.AddressManagement.Core.Addresses\LKCode.AddressManagement.Core.Addresses.csproj" />
+    <ProjectReference Include="..\..\src\LKCode.AddressManagement.Data\LKCode.AddressManagement.Data.csproj" />
+    <ProjectReference Include="..\..\src\LKCode.AddressManagement.Domain\LKCode.AddressManagement.Domain.csproj" />
+    <ProjectReference Include="..\..\src\LKCode.AddressManagement.Service\LKCode.AddressManagement.Service.csproj" />
+  </ItemGroup>
+
+</Project>
