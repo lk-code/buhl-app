@@ -1,9 +1,12 @@
+using System.Globalization;
 using System.Net.Mime;
+using System.Text;
 using System.Text.Json;
 using FluentValidation;
 using FluentValidation.Results;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Core.Addresses.Mappings;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Extensions;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
@@ -46,6 +49,9 @@ public sealed class AddressesController(
 
     // MediaTypeNames has no constant for JSON Patch (RFC 6902, section 6).
     private const string JsonPatchMediaType = "application/json-patch+json";
+
+    private static readonly CompositeFormat _failedTestDetail = CompositeFormat.Parse(
+        "The test operation at index {0} failed: the value at '{1}' is not equal to the test value.");
 
     private readonly IAddressService _addressService =
         addressService ?? throw new ArgumentNullException(nameof(addressService));
@@ -256,11 +262,43 @@ public sealed class AddressesController(
     [ProducesResponseType<ProblemDetails>(
         StatusCodes.Status415UnsupportedMediaType,
         MediaTypeNames.Application.ProblemJson)]
-    public Task<ActionResult<AddressResponse>> PatchAsync(
+    public async Task<ActionResult<AddressResponse>> PatchAsync(
         Guid id,
         JsonPatchDocument<UpdateAddressRequest> patchDocument,
-        CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(patchDocument);
+
+        ValidationResult operationsResult = patchDocument.ValidateOperations();
+        if (!operationsResult.IsValid)
+        {
+            // The keys are JSON paths in the patch document, e.g. "$[0].path"; they are not converted.
+            ModelState.AddValidationErrors(operationsResult, namingPolicy: null);
+
+            return ValidationProblem(ModelState);
+        }
+
+        AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            return NotFound();
+        }
+
+        // The patch changes a new request with the current values, so a failed test leaves nothing changed.
+        UpdateAddressRequest request = address.ToUpdateRequest();
+        if (!patchDocument.TryApplyTo(request, out int failedTestIndex))
+        {
+            string detail = string.Format(
+                CultureInfo.InvariantCulture,
+                _failedTestDetail,
+                failedTestIndex,
+                patchDocument.Operations[failedTestIndex].path);
+
+            return Problem(detail: detail, statusCode: StatusCodes.Status409Conflict);
+        }
+
+        return await SanitizeValidateAndUpdateAsync(id, request, cancellationToken);
+    }
 
     /// <summary>
     /// Deletes the address with the given id.
