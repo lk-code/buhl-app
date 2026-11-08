@@ -68,4 +68,27 @@ public static class AddressMappingExtensions
             textNormalizer,
             timeProvider);
     }
+
+    /// <summary>
+    /// Replaces all values of the <paramref name="address"/> with the values of the <paramref name="request"/>.
+    /// </summary>
+    /// <param name="request">The sanitized and validated request.</param>
+    /// <param name="address">The address to change.</param>
+    /// <param name="textNormalizer">The normalizer for the city and the postal code.</param>
+    /// <param name="timeProvider">The provider of the current time.</param>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="request"/>, <paramref name="address"/>, <paramref name="textNormalizer"/> or
+    /// <paramref name="timeProvider"/> is <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// A value of the request is invalid; see <see cref="Address.Update"/>. The address stays unchanged.
+    /// </exception>
+    public static void ApplyTo(
+        this UpdateAddressRequest request,
+        Address address,
+        ITextNormalizer textNormalizer,
+        TimeProvider timeProvider)
+    {
+        throw new NotImplementedException();
+    }
 }

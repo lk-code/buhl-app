@@ -170,6 +170,122 @@ public class AddressMappingExtensionsTests
         act.Should().Throw<ArgumentNullException>().WithParameterName("timeProvider");
     }
 
+    [Test]
+    public void ApplyTo_ValidRequest_ChangesAllValues()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        request.ApplyTo(address, _textNormalizer, _timeProvider);
+
+        // Assert
+        AddressInput.From(address).Should().Be(AddressInput.Changed);
+    }
+
+    [Test]
+    public void ApplyTo_ValidRequest_KeepsIdAndCreatedAtAndSetsUpdatedAt()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        Guid id = address.Id;
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        request.ApplyTo(address, _textNormalizer, _timeProvider);
+
+        // Assert
+        address.Id.Should().Be(id);
+        address.CreatedAt.Should().Be(_startTime);
+        address.UpdatedAt.Should().Be(_startTime.AddHours(2));
+    }
+
+    [Test]
+    public void ApplyTo_ValidRequest_UpdatesNormalizedFields()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        request.ApplyTo(address, _textNormalizer, _timeProvider);
+
+        // Assert
+        address.NormalizedCity.Should().Be("city:London");
+        address.NormalizedPostalCode.Should().Be("postal:SW1A 1AA");
+    }
+
+    [Test]
+    public void ApplyTo_RequestWithoutEmail_RemovesEmail()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        UpdateAddressRequest request = (AddressInput.Changed with { Email = null }).ToUpdateRequest();
+
+        // Act
+        request.ApplyTo(address, _textNormalizer, _timeProvider);
+
+        // Assert
+        address.Email.Should().BeNull();
+    }
+
+    [Test]
+    public void ApplyTo_NullRequest_ThrowsArgumentNullException()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        UpdateAddressRequest request = null!;
+
+        // Act
+        Action act = () => request.ApplyTo(address, _textNormalizer, _timeProvider);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("request");
+    }
+
+    [Test]
+    public void ApplyTo_NullAddress_ThrowsArgumentNullException()
+    {
+        // Arrange
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        Action act = () => request.ApplyTo(null!, _textNormalizer, _timeProvider);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("address");
+    }
+
+    [Test]
+    public void ApplyTo_NullTextNormalizer_ThrowsArgumentNullException()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        Action act = () => request.ApplyTo(address, null!, _timeProvider);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("textNormalizer");
+    }
+
+    [Test]
+    public void ApplyTo_NullTimeProvider_ThrowsArgumentNullException()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        Action act = () => request.ApplyTo(address, _textNormalizer, null!);
+
+        // Assert
+        act.Should().Throw<ArgumentNullException>().WithParameterName("timeProvider");
+    }
+
     private Address CreateAddress(AddressInput input) => Address.Create(
         input.FirstName,
         input.LastName,
