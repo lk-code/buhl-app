@@ -1,5 +1,6 @@
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Domain.Addresses;
+using LKCode.AddressManagement.Domain.Contracts;
 
 namespace LKCode.AddressManagement.Core.Addresses.Mappings;
 
@@ -30,5 +31,27 @@ public static class AddressMappingExtensions
             address.Email,
             address.CreatedAt,
             address.UpdatedAt);
+    }
+
+    /// <summary>
+    /// Creates a new address from the <paramref name="request"/>.
+    /// </summary>
+    /// <param name="request">The sanitized and validated request.</param>
+    /// <param name="textNormalizer">The normalizer for the city and the postal code.</param>
+    /// <param name="timeProvider">The provider of the current time.</param>
+    /// <returns>The new address.</returns>
+    /// <exception cref="ArgumentNullException">
+    /// <paramref name="request"/>, <paramref name="textNormalizer"/> or <paramref name="timeProvider"/> is
+    /// <see langword="null"/>.
+    /// </exception>
+    /// <exception cref="ArgumentException">
+    /// A value of the request is invalid; see <see cref="Address.Create"/>.
+    /// </exception>
+    public static Address ToAddress(
+        this CreateAddressRequest request,
+        ITextNormalizer textNormalizer,
+        TimeProvider timeProvider)
+    {
+        throw new NotImplementedException();
     }
 }
