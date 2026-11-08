@@ -37,7 +37,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.Updated());
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.Updated());
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -56,7 +56,7 @@ public class PutAddressTests
     {
         // Arrange
         AddressResponse created = await SeedAsync();
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.Updated());
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.Updated());
         AddressResponse? updated = await response.Content.ReadFromJsonAsync<AddressResponse>();
 
         // Act
@@ -77,7 +77,7 @@ public class PutAddressTests
         int countBefore = (await _factory.ListAddressesAsync()).Count;
 
         // Act
-        using HttpResponseMessage response = await PutAsync(changed.Id, AddressPayloads.Updated());
+        using HttpResponseMessage response = await PutAsync(changed, AddressPayloads.Updated());
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -90,14 +90,14 @@ public class PutAddressTests
     {
         // Arrange
         AddressResponse created = await SeedAsync();
+        using HttpResponseMessage first = await PutAsync(created, AddressPayloads.Updated());
+        AddressResponse firstBody = (await first.Content.ReadFromJsonAsync<AddressResponse>())!;
 
         // Act
-        using HttpResponseMessage first = await PutAsync(created.Id, AddressPayloads.Updated());
-        using HttpResponseMessage second = await PutAsync(created.Id, AddressPayloads.Updated());
+        using HttpResponseMessage second = await PutAsync(firstBody, AddressPayloads.Updated());
 
         // Assert
         second.StatusCode.Should().Be(HttpStatusCode.OK);
-        AddressResponse firstBody = (await first.Content.ReadFromJsonAsync<AddressResponse>())!;
         AddressResponse secondBody = (await second.Content.ReadFromJsonAsync<AddressResponse>())!;
         secondBody.Should().BeEquivalentTo(
             firstBody,
@@ -124,7 +124,7 @@ public class PutAddressTests
         };
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, payload);
+        using HttpResponseMessage response = await PutAsync(created, payload);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -142,7 +142,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWith("country", country));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWith("country", country));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -157,7 +157,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWithout("email"));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWithout("email"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -176,7 +176,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWith("email", email));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWith("email", email));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -192,7 +192,7 @@ public class PutAddressTests
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest with { Email = null });
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.Updated());
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.Updated());
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -208,7 +208,7 @@ public class PutAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PutAsync(created.Id, AddressPayloads.ValidWith(field.Name, field.ValueAtMaxLength));
+            await PutAsync(created, AddressPayloads.ValidWith(field.Name, field.ValueAtMaxLength));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -234,7 +234,7 @@ public class PutAddressTests
         };
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, payload);
+        using HttpResponseMessage response = await PutAsync(created, payload);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -252,7 +252,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWithout(field.Name));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWithout(field.Name));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -266,7 +266,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWith(field.Name, value));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWith(field.Name, value));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -281,7 +281,7 @@ public class PutAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PutAsync(created.Id, AddressPayloads.ValidWith(field.Name, field.ValueExceedingMaxLength));
+            await PutAsync(created, AddressPayloads.ValidWith(field.Name, field.ValueExceedingMaxLength));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -295,7 +295,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, new JsonObject());
+        using HttpResponseMessage response = await PutAsync(created, new JsonObject());
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -314,7 +314,7 @@ public class PutAddressTests
         }
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, payload);
+        using HttpResponseMessage response = await PutAsync(created, payload);
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -337,7 +337,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWith("country", country));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWith("country", country));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -359,7 +359,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWith("email", email));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWith("email", email));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -373,7 +373,7 @@ public class PutAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.ValidWith("country", "XX"));
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.ValidWith("country", "XX"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -398,7 +398,7 @@ public class PutAddressTests
         payload["firstName"] = " ";
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, payload);
+        using HttpResponseMessage response = await PutAsync(created, payload);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -446,14 +446,13 @@ public class PutAddressTests
     }
 
     [Test]
-    public async Task PutAsync_UnknownIdAndInvalidAddress_Returns400ForValue()
+    public async Task PutAsync_UnknownIdAndInvalidAddress_Returns404WithProblemDetails()
     {
         // Act
         using HttpResponseMessage response = await PutAsync(UnknownId, AddressPayloads.ValidWith("country", "XX"));
 
         // Assert
-        JsonElement errors = await ReadValidationErrorsAsync(response);
-        GetKeys(errors).Should().Equal("country");
+        await AssertNotFoundAsync(response);
     }
 
     [Test]
@@ -461,10 +460,14 @@ public class PutAddressTests
     {
         // Arrange
         AddressResponse created = await SeedAsync();
-        using HttpResponseMessage deleteResponse = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage deleteResponse = await _client.SendWithIfMatchAsync(
+            HttpMethod.Delete,
+            $"{Path}/{created.Id}",
+            content: null,
+            created.ToETag());
 
         // Act
-        using HttpResponseMessage response = await PutAsync(created.Id, AddressPayloads.Updated());
+        using HttpResponseMessage response = await PutAsync(created, AddressPayloads.Updated());
 
         // Assert
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -529,8 +532,12 @@ public class PutAddressTests
 
     private Task<AddressResponse> SeedAsync() => _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
 
-    private Task<HttpResponseMessage> PutAsync(Guid id, JsonNode payload) => PutAsync(id.ToString(), payload);
+    /// <summary>
+    /// Changes the <paramref name="address"/> with the entity tag of its version in the <c>If-Match</c> header.
+    /// </summary>
+    private Task<HttpResponseMessage> PutAsync(AddressResponse address, JsonNode payload) =>
+        PutAsync(address.Id.ToString(), payload, address.ToETag());
 
-    private Task<HttpResponseMessage> PutAsync(string id, JsonNode payload) =>
-        _client.PutAsJsonAsync($"{Path}/{id}", payload);
+    private Task<HttpResponseMessage> PutAsync(string id, JsonNode payload, string ifMatch = "\"1\"") =>
+        _client.SendWithIfMatchAsync(HttpMethod.Put, $"{Path}/{id}", JsonContent.Create(payload), ifMatch);
 }

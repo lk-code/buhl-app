@@ -1,5 +1,6 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LKCode.AddressManagement.IntegrationTests.Addresses;
@@ -10,7 +11,7 @@ namespace LKCode.AddressManagement.IntegrationTests.Addresses;
 public static class AddressManagementWebApplicationFactoryExtensions
 {
     public static async Task<AddressResponse> SeedAddressAsync(
-        this AddressManagementWebApplicationFactory factory,
+        this WebApplicationFactory<Program> factory,
         CreateAddressRequest request)
     {
         ArgumentNullException.ThrowIfNull(factory);
@@ -22,7 +23,7 @@ public static class AddressManagementWebApplicationFactoryExtensions
     }
 
     public static async Task<AddressResponse?> FindAddressAsync(
-        this AddressManagementWebApplicationFactory factory,
+        this WebApplicationFactory<Program> factory,
         Guid id)
     {
         ArgumentNullException.ThrowIfNull(factory);
@@ -34,7 +35,7 @@ public static class AddressManagementWebApplicationFactoryExtensions
     }
 
     public static async Task<IReadOnlyList<AddressResponse>> ListAddressesAsync(
-        this AddressManagementWebApplicationFactory factory)
+        this WebApplicationFactory<Program> factory)
     {
         ArgumentNullException.ThrowIfNull(factory);
 

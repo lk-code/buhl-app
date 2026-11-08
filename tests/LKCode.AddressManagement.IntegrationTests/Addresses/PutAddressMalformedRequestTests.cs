@@ -200,11 +200,14 @@ public class PutAddressMalformedRequestTests
         body.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
     }
 
+    /// <summary>
+    /// Sends the <paramref name="body"/> with <c>If-Match: *</c>, so that only the body decides the outcome.
+    /// </summary>
     private async Task<HttpResponseMessage> PutAsync(Guid id, string body, string mediaType)
     {
         using var content = new StringContent(body, Encoding.UTF8);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(mediaType);
 
-        return await _client.PutAsync($"{Path}/{id}", content);
+        return await _client.SendWithIfMatchAsync(HttpMethod.Put, $"{Path}/{id}", content, "*");
     }
 }

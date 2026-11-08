@@ -52,7 +52,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", field, value));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", field, value));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -67,7 +67,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", "city", "Berlin"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", "city", "Berlin"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -84,7 +84,7 @@ public class PatchAddressTests
     {
         // Arrange
         AddressResponse created = await SeedAsync();
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", "city", "Berlin"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", "city", "Berlin"));
         AddressResponse? patched = await response.Content.ReadFromJsonAsync<AddressResponse>();
 
         // Act
@@ -106,7 +106,7 @@ public class PatchAddressTests
         int countBefore = (await _factory.ListAddressesAsync()).Count;
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(changed.Id, Operation("replace", "city", "Berlin"));
+        using HttpResponseMessage response = await PatchAsync(changed, Operation("replace", "city", "Berlin"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -122,7 +122,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PatchAsync(created.Id, Operation("add", "email", "erika@example.com"));
+            await PatchAsync(created, Operation("add", "email", "erika@example.com"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -136,7 +136,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("add", "firstName", "Max"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("add", "firstName", "Max"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -150,7 +150,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("remove", "email"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("remove", "email"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -165,7 +165,7 @@ public class PatchAddressTests
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest with { Email = null });
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("remove", "email"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("remove", "email"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -180,7 +180,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("test", "firstName", "Erika"),
             Operation("test", "email", "erika.mustermann@example.com"),
             Operation("replace", "firstName", "Max"));
@@ -198,7 +198,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("replace", "firstName", "Max"),
             Operation("test", "firstName", "Max"));
 
@@ -214,7 +214,7 @@ public class PatchAddressTests
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest with { Email = null });
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("test", "email", null));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("test", "email", null));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -228,7 +228,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("test", "city", "Köln"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("test", "city", "Köln"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -242,7 +242,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, OperationFrom("copy", "street", "city"));
+        using HttpResponseMessage response = await PatchAsync(created, OperationFrom("copy", "street", "city"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -257,7 +257,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PatchAsync(created.Id, OperationFrom("move", "lastName", "email"));
+            await PatchAsync(created, OperationFrom("move", "lastName", "email"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -272,7 +272,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PatchAsync(created.Id, OperationFrom("move", "houseNumber", "postalCode"));
+            await PatchAsync(created, OperationFrom("move", "houseNumber", "postalCode"));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -288,7 +288,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("replace", "firstName", "Max"),
             Operation("replace", "lastName", "Musterfrau"),
             OperationFrom("copy", "city", "firstName"),
@@ -313,7 +313,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id);
+        using HttpResponseMessage response = await PatchAsync(created);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -328,7 +328,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("replace", "firstName", "  Max "),
             Operation("replace", "postalCode", "\t10115"),
             Operation("add", "email", " max@example.org  "));
@@ -352,7 +352,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", "country", country));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", "country", country));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -369,7 +369,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", "email", email));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", "email", email));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -384,7 +384,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PatchAsync(created.Id, Operation("replace", field.Name, field.ValueAtMaxLength));
+            await PatchAsync(created, Operation("replace", field.Name, field.ValueAtMaxLength));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
@@ -398,7 +398,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("remove", field.Name));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("remove", field.Name));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -412,7 +412,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", field.Name, value));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", field.Name, value));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -427,7 +427,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PatchAsync(created.Id, Operation("add", field.Name, field.ValueExceedingMaxLength));
+            await PatchAsync(created, Operation("add", field.Name, field.ValueExceedingMaxLength));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -446,7 +446,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", "country", country));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", "country", country));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -464,7 +464,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("add", "email", email));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("add", "email", email));
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -479,7 +479,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("remove", "firstName"),
             Operation("replace", "country", "XX"),
             Operation("replace", "email", "erika"));
@@ -496,7 +496,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", "country", "XX"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", "country", "XX"));
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
@@ -520,7 +520,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("replace", "city", "Berlin"),
             Operation("replace", "firstName", " "));
 
@@ -553,7 +553,7 @@ public class PatchAddressTests
         AddressResponse created = await SeedAsync();
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, JsonNode.Parse(operation)!);
+        using HttpResponseMessage response = await PatchAsync(created, JsonNode.Parse(operation)!);
 
         // Assert
         JsonElement errors = await ReadValidationErrorsAsync(response);
@@ -568,7 +568,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             JsonNode.Parse("""{"op": "foo", "path": "/firstName"}""")!,
             Operation("replace", "city", "Berlin"),
             JsonNode.Parse("""{"op": "copy", "from": "/Email", "path": "/street"}""")!,
@@ -597,7 +597,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("replace", "city", "Berlin"),
             JsonNode.Parse("""{"op": "replace", "path": "/unknown", "value": "Max"}""")!);
 
@@ -607,15 +607,14 @@ public class PatchAddressTests
     }
 
     [Test]
-    public async Task PatchAsync_UnknownIdAndInvalidOperation_Returns400ForJsonPath()
+    public async Task PatchAsync_UnknownIdAndInvalidOperation_Returns404WithProblemDetails()
     {
         // Act
         using HttpResponseMessage response =
             await PatchAsync(UnknownId, JsonNode.Parse("""{"op": "replace", "path": "/unknown", "value": "Max"}""")!);
 
         // Assert
-        JsonElement errors = await ReadValidationErrorsAsync(response);
-        GetKeys(errors).Should().Equal("$[0].path");
+        await AssertNotFoundAsync(response);
     }
 
     [TestCase("firstName", "Max")]
@@ -632,7 +631,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("replace", "city", "Berlin"),
             Operation("test", field, value));
 
@@ -658,7 +657,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response =
-            await PatchAsync(created.Id, JsonNode.Parse("""{"op": "test", "path": "/email"}""")!);
+            await PatchAsync(created, JsonNode.Parse("""{"op": "test", "path": "/email"}""")!);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.Conflict);
@@ -672,7 +671,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("replace", "city", "Berlin"),
             Operation("test", "firstName", "Max"),
             Operation("replace", "lastName", "Musterfrau"));
@@ -690,7 +689,7 @@ public class PatchAddressTests
 
         // Act
         using HttpResponseMessage response = await PatchAsync(
-            created.Id,
+            created,
             Operation("remove", "firstName"),
             Operation("test", "city", "Berlin"));
 
@@ -715,7 +714,7 @@ public class PatchAddressTests
         // Act
         using HttpResponseMessage response = await PatchAsync(UnknownId, Operation("replace", "city", "Berlin"));
         using HttpResponseMessage unknownRouteResponse =
-            await SendPatchAsync("/does-not-exist", Operation("replace", "city", "Berlin"));
+            await SendPatchAsync("/does-not-exist", "\"1\"", Operation("replace", "city", "Berlin"));
 
         // Assert
         IReadOnlyDictionary<string, string> body = await ReadWithoutTraceIdAsync(response);
@@ -753,10 +752,14 @@ public class PatchAddressTests
     {
         // Arrange
         AddressResponse created = await SeedAsync();
-        using HttpResponseMessage deleteResponse = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage deleteResponse = await _client.SendWithIfMatchAsync(
+            HttpMethod.Delete,
+            $"{Path}/{created.Id}",
+            content: null,
+            created.ToETag());
 
         // Act
-        using HttpResponseMessage response = await PatchAsync(created.Id, Operation("replace", "city", "Berlin"));
+        using HttpResponseMessage response = await PatchAsync(created, Operation("replace", "city", "Berlin"));
 
         // Assert
         deleteResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -865,17 +868,20 @@ public class PatchAddressTests
 
     private Task<AddressResponse> SeedAsync() => _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
 
-    private Task<HttpResponseMessage> PatchAsync(Guid id, params JsonNode[] operations) =>
-        PatchAsync(id.ToString(), operations);
+    /// <summary>
+    /// Changes the <paramref name="address"/> with the entity tag of its version in the <c>If-Match</c> header.
+    /// </summary>
+    private Task<HttpResponseMessage> PatchAsync(AddressResponse address, params JsonNode[] operations) =>
+        SendPatchAsync($"{Path}/{address.Id}", address.ToETag(), operations);
 
     private Task<HttpResponseMessage> PatchAsync(string id, params JsonNode[] operations) =>
-        SendPatchAsync($"{Path}/{id}", operations);
+        SendPatchAsync($"{Path}/{id}", "\"1\"", operations);
 
-    private async Task<HttpResponseMessage> SendPatchAsync(string url, params JsonNode[] operations)
+    private async Task<HttpResponseMessage> SendPatchAsync(string url, string ifMatch, params JsonNode[] operations)
     {
         using var content = new StringContent(new JsonArray(operations).ToJsonString(), Encoding.UTF8);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(JsonPatchMediaType);
 
-        return await _client.PatchAsync(url, content);
+        return await _client.SendWithIfMatchAsync(HttpMethod.Patch, url, content, ifMatch);
     }
 }

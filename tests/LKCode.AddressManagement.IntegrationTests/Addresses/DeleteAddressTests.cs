@@ -36,7 +36,7 @@ public class DeleteAddressTests
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
 
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage response = await DeleteAsync(created);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -52,7 +52,7 @@ public class DeleteAddressTests
         AddressResponse kept = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
 
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{deleted.Id}");
+        using HttpResponseMessage response = await DeleteAsync(deleted);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -68,7 +68,7 @@ public class DeleteAddressTests
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
 
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage response = await DeleteAsync(created);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -81,7 +81,7 @@ public class DeleteAddressTests
     {
         // Arrange
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
-        using HttpResponseMessage deleteResponse = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage deleteResponse = await DeleteAsync(created);
 
         // Act
         using HttpResponseMessage response = await _client.GetAsync($"{Path}/{created.Id}");
@@ -96,10 +96,10 @@ public class DeleteAddressTests
     {
         // Arrange
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
-        using HttpResponseMessage firstResponse = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage firstResponse = await DeleteAsync(created);
 
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage response = await DeleteAsync(created);
 
         // Assert
         firstResponse.StatusCode.Should().Be(HttpStatusCode.NoContent);
@@ -111,12 +111,12 @@ public class DeleteAddressTests
     {
         // Arrange
         AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
-        using HttpResponseMessage firstResponse = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage firstResponse = await DeleteAsync(created);
 
         // Act
-        using HttpResponseMessage deletedDeleteResponse = await _client.DeleteAsync($"{Path}/{created.Id}");
+        using HttpResponseMessage deletedDeleteResponse = await DeleteAsync(created);
         using HttpResponseMessage deletedGetResponse = await _client.GetAsync($"{Path}/{created.Id}");
-        using HttpResponseMessage unknownDeleteResponse = await _client.DeleteAsync($"{Path}/{UnknownId}");
+        using HttpResponseMessage unknownDeleteResponse = await DeleteAsync(UnknownId);
         using HttpResponseMessage unknownGetResponse = await _client.GetAsync($"{Path}/{UnknownId}");
 
         // Assert
@@ -132,7 +132,7 @@ public class DeleteAddressTests
     public async Task DeleteAsync_UnknownId_Returns404WithProblemDetails(string id)
     {
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{id}");
+        using HttpResponseMessage response = await DeleteAsync(id);
 
         // Assert
         await AssertNotFoundAsync(response);
@@ -142,7 +142,7 @@ public class DeleteAddressTests
     public async Task DeleteAsync_UnknownId_ReturnsSameProblemDetailsAsUnknownRoute()
     {
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{UnknownId}");
+        using HttpResponseMessage response = await DeleteAsync(UnknownId);
         using HttpResponseMessage unknownRouteResponse = await _client.DeleteAsync("/does-not-exist");
 
         // Assert
@@ -159,7 +159,7 @@ public class DeleteAddressTests
         int countBefore = (await _factory.ListAddressesAsync()).Count;
 
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{UnknownId}");
+        using HttpResponseMessage response = await DeleteAsync(UnknownId);
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
@@ -175,7 +175,7 @@ public class DeleteAddressTests
     public async Task DeleteAsync_InvalidId_Returns404WithProblemDetails(string id)
     {
         // Act
-        using HttpResponseMessage response = await _client.DeleteAsync($"{Path}/{id}");
+        using HttpResponseMessage response = await DeleteAsync(id);
 
         // Assert
         await AssertNotFoundAsync(response);
@@ -201,4 +201,13 @@ public class DeleteAddressTests
             .Where(property => property.Name != "traceId")
             .ToDictionary(property => property.Name, property => property.Value.GetRawText());
     }
+
+    /// <summary>
+    /// Deletes the <paramref name="address"/> with the entity tag of its version in the <c>If-Match</c> header.
+    /// </summary>
+    private Task<HttpResponseMessage> DeleteAsync(AddressResponse address) =>
+        DeleteAsync(address.Id.ToString(), address.ToETag());
+
+    private Task<HttpResponseMessage> DeleteAsync(string id, string ifMatch = "\"1\"") =>
+        _client.SendWithIfMatchAsync(HttpMethod.Delete, $"{Path}/{id}", content: null, ifMatch);
 }

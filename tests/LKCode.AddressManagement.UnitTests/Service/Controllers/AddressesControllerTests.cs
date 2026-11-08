@@ -10,8 +10,10 @@ using LKCode.AddressManagement.Service.Controllers;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.Infrastructure;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 using NSubstitute;
 
 namespace LKCode.AddressManagement.UnitTests.Service.Controllers;
@@ -78,6 +80,25 @@ public class AddressesControllerTests
 
     private const string ReplaceFirstName = """{"op": "replace", "path": "/firstName", "value": "Max"}""";
 
+    private const string InvalidBodyKey = "$.firstName";
+
+    private const string InvalidBodyError = "The input was not valid.";
+
+    /// <summary>
+    /// The entity tag of the version of <see cref="_address"/>.
+    /// </summary>
+    private const string CurrentETag = "\"1\"";
+
+    private const string InvalidIfMatchError =
+        "The header If-Match must be '*' or a comma-separated list of entity tags, e.g. '\"3\"'.";
+
+    private const string MissingIfMatchDetail =
+        "The request must contain the header If-Match with the current ETag of the address or '*'.";
+
+    private const string VersionMismatchDetail =
+        "The version of the address does not match the header If-Match. Get the address again and repeat the "
+        + "request with its current ETag.";
+
     private ServiceProvider _serviceProvider = null!;
     private IAddressService _addressService = null!;
     private IValidator<CreateAddressRequest> _createAddressValidator = null!;
@@ -90,6 +111,7 @@ public class AddressesControllerTests
     {
         _serviceProvider = new ServiceCollection().AddControllers().Services.BuildServiceProvider();
         _addressService = Substitute.For<IAddressService>();
+        _addressService.GetByIdAsync(_address.Id, Arg.Any<CancellationToken>()).Returns(_address);
         _addressService.CreateAsync(Arg.Any<CreateAddressRequest>(), Arg.Any<CancellationToken>()).Returns(_address);
         _addressService.UpdateAsync(default, default, default!, default)
             .ReturnsForAnyArgs(AddressChangeResult.Success(_address));
@@ -113,6 +135,7 @@ public class AddressesControllerTests
                 HttpContext = new DefaultHttpContext { RequestServices = _serviceProvider },
             },
         };
+        SetIfMatch(CurrentETag);
     }
 
     [TearDown]
@@ -429,6 +452,7 @@ public class AddressesControllerTests
         await _controller.UpdateAsync(_address.Id, _validUpdateRequest, cancellationTokenSource.Token);
 
         // Assert
+        await _addressService.Received(1).GetByIdAsync(_address.Id, cancellationTokenSource.Token);
         await _updateAddressValidator.Received(1)
             .ValidateAsync(Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
         await _addressService.Received(1)
@@ -461,9 +485,7 @@ public class AddressesControllerTests
     {
         // Arrange
         var id = Guid.CreateVersion7(_createdAt);
-        _addressService
-            .UpdateAsync(id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
-            .Returns(AddressChangeResult.NotFound);
+        _addressService.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns((AddressResponse?)null);
 
         // Act
         ActionResult<AddressResponse> result =
@@ -549,7 +571,7 @@ public class AddressesControllerTests
     }
 
     [Test]
-    public async Task PatchAsync_InvalidOperations_DoesNotLoadOrUpdateAddress()
+    public async Task PatchAsync_InvalidOperations_DoesNotValidateOrUpdateAddress()
     {
         // Arrange
         JsonPatchDocument<UpdateAddressRequest> patchDocument =
@@ -559,7 +581,7 @@ public class AddressesControllerTests
         await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
 
         // Assert
-        await _addressService.DidNotReceiveWithAnyArgs().GetByIdAsync(default, default);
+        await _updateAddressValidator.DidNotReceiveWithAnyArgs().ValidateAsync(default!, default);
         await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
     }
 
@@ -583,7 +605,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_FailedTest_ReturnsConflictWithProblemDetails()
     {
         // Arrange
-        ReturnAddressForPatch();
         JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
             ReplaceFirstName,
             """{"op": "test", "path": "/city", "value": "Berlin"}""");
@@ -606,7 +627,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_FailedTest_DoesNotValidateOrUpdateAddress()
     {
         // Arrange
-        ReturnAddressForPatch();
         JsonPatchDocument<UpdateAddressRequest> patchDocument =
             ParsePatch("""{"op": "test", "path": "/firstName", "value": "Max"}""", ReplaceFirstName);
 
@@ -622,7 +642,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_ValidPatch_ValidatesSanitizedPatchedValues()
     {
         // Arrange
-        ReturnAddressForPatch();
         JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
             """{"op": "replace", "path": "/firstName", "value": " Max "}""",
             """{"op": "replace", "path": "/country", "value": "at"}""",
@@ -641,7 +660,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_ValidPatch_UpdatesAddressWithSanitizedPatchedValues()
     {
         // Arrange
-        ReturnAddressForPatch();
         JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
             """{"op": "test", "path": "/lastName", "value": "Mustermann"}""",
             """{"op": "copy", "from": "/city", "path": "/street"}""",
@@ -662,9 +680,6 @@ public class AddressesControllerTests
     [Test]
     public async Task PatchAsync_NoOperations_UpdatesAddressWithCurrentValues()
     {
-        // Arrange
-        ReturnAddressForPatch();
-
         // Act
         await _controller.PatchAsync(_address.Id, ParsePatch(), CancellationToken.None);
 
@@ -688,7 +703,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_ValidPatch_ReturnsOkWithAddress()
     {
         // Arrange
-        ReturnAddressForPatch();
         AddressResponse updated = _address with { FirstName = "Max" };
         _addressService
             .UpdateAsync(_address.Id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
@@ -706,7 +720,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_AddressDeletedBeforeUpdate_ReturnsNotFound()
     {
         // Arrange
-        ReturnAddressForPatch();
         _addressService
             .UpdateAsync(_address.Id, Arg.Any<long?>(), Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
             .Returns(AddressChangeResult.NotFound);
@@ -723,7 +736,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_InvalidPatchedValues_ReturnsValidationProblemWithJsonNames()
     {
         // Arrange
-        ReturnAddressForPatch();
         ReturnUpdateValidationErrors(
             new ValidationFailure("FirstName", "'First Name' must not be empty."),
             new ValidationFailure("PostalCode", "'Postal Code' must not be empty."));
@@ -761,7 +773,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_InvalidPatchedValues_DoesNotUpdateAddress()
     {
         // Arrange
-        ReturnAddressForPatch();
         ReturnUpdateValidationErrors(new ValidationFailure("FirstName", "'First Name' must not be empty."));
 
         // Act
@@ -778,7 +789,6 @@ public class AddressesControllerTests
     public async Task PatchAsync_ValidPatch_PassesIdAndCancellationTokenToServiceAndValidator()
     {
         // Arrange
-        ReturnAddressForPatch();
         using var cancellationTokenSource = new CancellationTokenSource();
 
         // Act
@@ -811,17 +821,18 @@ public class AddressesControllerTests
     {
         // Arrange
         var id = Guid.CreateVersion7(_createdAt);
-        _addressService.DeleteAsync(id, Arg.Any<long?>(), Arg.Any<CancellationToken>()).Returns(ChangeStatus.NotFound);
+        _addressService.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns((AddressResponse?)null);
 
         // Act
         IActionResult result = await _controller.DeleteAsync(id, CancellationToken.None);
 
         // Assert
         result.Should().BeOfType<NotFoundResult>();
+        await _addressService.DidNotReceiveWithAnyArgs().DeleteAsync(default, default, default);
     }
 
     [Test]
-    public async Task DeleteAsync_AnyId_PassesIdAndCancellationToken()
+    public async Task DeleteAsync_KnownId_PassesIdAndCancellationToken()
     {
         // Arrange
         using var cancellationTokenSource = new CancellationTokenSource();
@@ -830,18 +841,292 @@ public class AddressesControllerTests
         await _controller.DeleteAsync(_address.Id, cancellationTokenSource.Token);
 
         // Assert
+        await _addressService.Received(1).GetByIdAsync(_address.Id, cancellationTokenSource.Token);
         await _addressService.Received(1).DeleteAsync(_address.Id, Arg.Any<long?>(), cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task GetByIdAsync_KnownId_SetsETagOfVersion()
+    {
+        // Arrange
+        _addressService.GetByIdAsync(_address.Id, Arg.Any<CancellationToken>()).Returns(_address with { Version = 7 });
+
+        // Act
+        await _controller.GetByIdAsync(_address.Id, CancellationToken.None);
+
+        // Assert
+        _controller.Response.Headers.ETag.Should().Equal("\"7\"");
+    }
+
+    [Test]
+    public async Task GetByIdAsync_UnknownId_SetsNoETag()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7(_createdAt);
+        _addressService.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns((AddressResponse?)null);
+
+        // Act
+        await _controller.GetByIdAsync(id, CancellationToken.None);
+
+        // Assert
+        _controller.Response.Headers.ETag.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task CreateAsync_ValidRequest_SetsETagOfVersion()
+    {
+        // Act
+        await _controller.CreateAsync(_validRequest, CancellationToken.None);
+
+        // Assert
+        _controller.Response.Headers.ETag.Should().Equal(CurrentETag);
+    }
+
+    [Test]
+    public async Task CreateAsync_InvalidRequest_SetsNoETag()
+    {
+        // Arrange
+        ReturnValidationErrors(new ValidationFailure("FirstName", "'First Name' must not be empty."));
+
+        // Act
+        await _controller.CreateAsync(_validRequest, CancellationToken.None);
+
+        // Assert
+        _controller.Response.Headers.ETag.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task CreateAsync_InvalidModelState_ReturnsValidationProblemWithoutValidatingOrCreating()
+    {
+        // Arrange
+        AddInvalidBodyError();
+
+        // Act
+        ActionResult<AddressResponse> result = await _controller.CreateAsync(null!, CancellationToken.None);
+
+        // Assert
+        AssertInvalidBody(result.Result);
+        await _createAddressValidator.DidNotReceiveWithAnyArgs().ValidateAsync(default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    public async Task ChangeAsync_Saved_SetsETagOfChangedVersion(ChangeAction action)
+    {
+        // Arrange
+        _addressService.UpdateAsync(default, default, default!, default)
+            .ReturnsForAnyArgs(AddressChangeResult.Success(_address with { Version = 2 }));
+
+        // Act
+        await ChangeAsync(action, _address.Id);
+
+        // Assert
+        _controller.Response.Headers.ETag.Should().Equal("\"2\"");
+    }
+
+    [Test]
+    public async Task DeleteAsync_Deleted_SetsNoETag()
+    {
+        // Act
+        await _controller.DeleteAsync(_address.Id, CancellationToken.None);
+
+        // Assert
+        _controller.Response.Headers.ETag.Should().BeEmpty();
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_UnknownId_ReturnsNotFoundBeforeCheckingIfMatchAndBody(ChangeAction action)
+    {
+        // Arrange
+        var id = Guid.CreateVersion7(_createdAt);
+        _addressService.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns((AddressResponse?)null);
+        SetIfMatch(null);
+        AddInvalidBodyError();
+
+        // Act
+        IActionResult result = await ChangeAsync(action, id);
+
+        // Assert
+        result.Should().BeOfType<NotFoundResult>();
+        await AssertNothingChangedAsync();
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_MissingIfMatch_ReturnsPreconditionRequiredBeforeCheckingBody(ChangeAction action)
+    {
+        // Arrange
+        SetIfMatch(null);
+        AddInvalidBodyError();
+
+        // Act
+        IActionResult result = await ChangeAsync(action, _address.Id);
+
+        // Assert
+        AssertProblem(result, StatusCodes.Status428PreconditionRequired, MissingIfMatchDetail);
+        await AssertNothingChangedAsync();
+    }
+
+    [TestCase(ChangeAction.Update, "1")]
+    [TestCase(ChangeAction.Update, "")]
+    [TestCase(ChangeAction.Patch, "*, \"1\"")]
+    [TestCase(ChangeAction.Patch, "\"1")]
+    [TestCase(ChangeAction.Delete, "W/1")]
+    [TestCase(ChangeAction.Delete, "\"2\", 1")]
+    public async Task ChangeAsync_InvalidIfMatch_ReturnsValidationProblemWithOnlyIfMatchError(
+        ChangeAction action,
+        string ifMatch)
+    {
+        // Arrange
+        SetIfMatch(ifMatch);
+        AddInvalidBodyError();
+
+        // Act
+        IActionResult result = await ChangeAsync(action, _address.Id);
+
+        // Assert
+        ObjectResult objectResult = result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        ValidationProblemDetails problem = objectResult.Value.Should().BeOfType<ValidationProblemDetails>().Which;
+        problem.Status.Should().Be(StatusCodes.Status400BadRequest);
+        problem.Errors.Should().BeEquivalentTo(new Dictionary<string, string[]>
+        {
+            ["If-Match"] = [InvalidIfMatchError],
+        });
+        await AssertNothingChangedAsync();
+    }
+
+    [TestCase(ChangeAction.Update, "\"2\"")]
+    [TestCase(ChangeAction.Update, "W/\"1\"")]
+    [TestCase(ChangeAction.Patch, "\"0\", \"2\"")]
+    [TestCase(ChangeAction.Patch, "W/\"1\"")]
+    [TestCase(ChangeAction.Delete, "\"2\"")]
+    [TestCase(ChangeAction.Delete, "W/\"1\"")]
+    public async Task ChangeAsync_IfMatchWithoutCurrentVersion_ReturnsPreconditionFailedBeforeCheckingBody(
+        ChangeAction action,
+        string ifMatch)
+    {
+        // Arrange
+        SetIfMatch(ifMatch);
+        AddInvalidBodyError();
+
+        // Act
+        IActionResult result = await ChangeAsync(action, _address.Id);
+
+        // Assert
+        AssertProblem(result, StatusCodes.Status412PreconditionFailed, VersionMismatchDetail);
+        await AssertNothingChangedAsync();
+    }
+
+    [Test]
+    public async Task PatchAsync_IfMatchWithoutCurrentVersion_ReturnsPreconditionFailedBeforeCheckingOperations()
+    {
+        // Arrange
+        SetIfMatch("\"2\"");
+        JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
+            """{"op": "foo", "path": "/FirstName"}""",
+            """{"op": "test", "path": "/city", "value": "Berlin"}""");
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        AssertProblem(result.Result, StatusCodes.Status412PreconditionFailed, VersionMismatchDetail);
+        await AssertNothingChangedAsync();
+    }
+
+    [TestCase(ChangeAction.Update, "\"1\"")]
+    [TestCase(ChangeAction.Update, "\"0\", \"1\"")]
+    [TestCase(ChangeAction.Patch, "\"1\"")]
+    [TestCase(ChangeAction.Patch, "W/\"1\", \"1\"")]
+    [TestCase(ChangeAction.Delete, "\"1\"")]
+    [TestCase(ChangeAction.Delete, "\"1\", \"2\"")]
+    public async Task ChangeAsync_IfMatchWithCurrentVersion_PassesCurrentVersionAsExpectedVersion(
+        ChangeAction action,
+        string ifMatch)
+    {
+        // Arrange
+        SetIfMatch(ifMatch);
+
+        // Act
+        await ChangeAsync(action, _address.Id);
+
+        // Assert
+        await AssertChangedWithExpectedVersionAsync(action, expectedVersion: 1);
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_IfMatchAsterisk_PassesNoExpectedVersion(ChangeAction action)
+    {
+        // Arrange
+        SetIfMatch("*");
+
+        // Act
+        await ChangeAsync(action, _address.Id);
+
+        // Assert
+        await AssertChangedWithExpectedVersionAsync(action, expectedVersion: null);
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    public async Task ChangeAsync_InvalidModelState_ReturnsValidationProblemWithoutValidatingOrUpdating(
+        ChangeAction action)
+    {
+        // Arrange
+        AddInvalidBodyError();
+
+        // Act
+        IActionResult result = await ChangeAsync(action, _address.Id);
+
+        // Assert
+        AssertInvalidBody(result);
+        await AssertNothingChangedAsync();
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_ServiceReportsVersionMismatch_ReturnsPreconditionFailed(ChangeAction action)
+    {
+        // Arrange
+        ReturnOnChange(ChangeStatus.VersionMismatch);
+
+        // Act
+        IActionResult result = await ChangeAsync(action, _address.Id);
+
+        // Assert
+        AssertProblem(result, StatusCodes.Status412PreconditionFailed, VersionMismatchDetail);
+        _controller.Response.Headers.ETag.Should().BeEmpty();
+    }
+
+    [TestCase(ChangeAction.Update)]
+    [TestCase(ChangeAction.Patch)]
+    [TestCase(ChangeAction.Delete)]
+    public async Task ChangeAsync_ServiceReportsNotFound_ReturnsNotFound(ChangeAction action)
+    {
+        // Arrange
+        ReturnOnChange(ChangeStatus.NotFound);
+
+        // Act
+        IActionResult result = await ChangeAsync(action, _address.Id);
+
+        // Assert
+        result.Should().BeOfType<NotFoundResult>();
+        _controller.Response.Headers.ETag.Should().BeEmpty();
     }
 
     private static JsonPatchDocument<UpdateAddressRequest> ParsePatch(params string[] operations) =>
         JsonSerializer.Deserialize<JsonPatchDocument<UpdateAddressRequest>>(
             $"[{string.Join(", ", operations)}]",
             JsonSerializerOptions.Web)!;
-
-    private void ReturnAddressForPatch()
-    {
-        _addressService.GetByIdAsync(_address.Id, Arg.Any<CancellationToken>()).Returns(_address);
-    }
 
     private void ReturnValidationErrors(params ValidationFailure[] failures)
     {
@@ -855,5 +1140,94 @@ public class AddressesControllerTests
         _updateAddressValidator
             .ValidateAsync(Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
             .Returns(new ValidationResult(failures));
+    }
+
+    private static IActionResult Convert(ActionResult<AddressResponse> result) =>
+        ((IConvertToActionResult)result).Convert();
+
+    private static void AssertProblem(IActionResult? result, int statusCode, string detail)
+    {
+        ObjectResult objectResult = result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(statusCode);
+        ProblemDetails problem = objectResult.Value.Should().BeOfType<ProblemDetails>().Which;
+        problem.Status.Should().Be(statusCode);
+        problem.Detail.Should().Be(detail);
+    }
+
+    private static void AssertInvalidBody(IActionResult? result)
+    {
+        ObjectResult objectResult = result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        ValidationProblemDetails problem = objectResult.Value.Should().BeOfType<ValidationProblemDetails>().Which;
+        problem.Errors.Should().BeEquivalentTo(new Dictionary<string, string[]>
+        {
+            [InvalidBodyKey] = [InvalidBodyError],
+        });
+    }
+
+    private async Task<IActionResult> ChangeAsync(ChangeAction action, Guid id) => action switch
+    {
+        ChangeAction.Update =>
+            Convert(await _controller.UpdateAsync(id, _validUpdateRequest, CancellationToken.None)),
+        ChangeAction.Patch =>
+            Convert(await _controller.PatchAsync(id, ParsePatch(ReplaceFirstName), CancellationToken.None)),
+        _ => await _controller.DeleteAsync(id, CancellationToken.None),
+    };
+
+    /// <summary>
+    /// Sets the <c>If-Match</c> header of the request; <see langword="null"/> to remove it.
+    /// </summary>
+    private void SetIfMatch(string? value)
+    {
+        IHeaderDictionary headers = _controller.ControllerContext.HttpContext.Request.Headers;
+        if (value is null)
+        {
+            headers.Remove(HeaderNames.IfMatch);
+        }
+        else
+        {
+            headers.IfMatch = value;
+        }
+    }
+
+    /// <summary>
+    /// Adds an error to the model state, as model binding does for a body that is no valid JSON.
+    /// </summary>
+    private void AddInvalidBodyError() => _controller.ModelState.AddModelError(InvalidBodyKey, InvalidBodyError);
+
+    private void ReturnOnChange(ChangeStatus status)
+    {
+        AddressChangeResult result = status switch
+        {
+            ChangeStatus.NotFound => AddressChangeResult.NotFound,
+            ChangeStatus.VersionMismatch => AddressChangeResult.VersionMismatch,
+            _ => AddressChangeResult.Success(_address),
+        };
+        _addressService.UpdateAsync(default, default, default!, default).ReturnsForAnyArgs(result);
+        _addressService.DeleteAsync(default, default, default).ReturnsForAnyArgs(status);
+    }
+
+    private async Task AssertNothingChangedAsync()
+    {
+        await _updateAddressValidator.DidNotReceiveWithAnyArgs().ValidateAsync(default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default, default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().DeleteAsync(default, default, default);
+    }
+
+    private async Task AssertChangedWithExpectedVersionAsync(ChangeAction action, long? expectedVersion)
+    {
+        if (action == ChangeAction.Delete)
+        {
+            await _addressService.Received(1)
+                .DeleteAsync(_address.Id, expectedVersion, Arg.Any<CancellationToken>());
+        }
+        else
+        {
+            await _addressService.Received(1).UpdateAsync(
+                _address.Id,
+                expectedVersion,
+                Arg.Any<UpdateAddressRequest>(),
+                Arg.Any<CancellationToken>());
+        }
     }
 }
