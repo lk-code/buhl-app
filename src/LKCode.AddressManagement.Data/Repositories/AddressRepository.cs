@@ -36,9 +36,12 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     }
 
     /// <inheritdoc />
-    public Task UpdateAsync(Address address, CancellationToken cancellationToken)
+    public async Task UpdateAsync(Address address, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(address);
+
+        _dbContext.Addresses.Update(address);
+        await _dbContext.SaveChangesAsync(cancellationToken);
     }
 
     /// <inheritdoc />
