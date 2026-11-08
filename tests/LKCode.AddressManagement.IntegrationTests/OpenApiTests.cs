@@ -11,6 +11,7 @@ namespace LKCode.AddressManagement.IntegrationTests;
 public class OpenApiTests
 {
     private const string OpenApiDocumentPath = "/openapi/v1.json";
+    private const string ScalarPath = "/scalar";
 
     private AddressManagementWebApplicationFactory _factory = null!;
     private WebApplicationFactory<Program> _productionFactory = null!;
@@ -67,6 +68,30 @@ public class OpenApiTests
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task GetAsync_ScalarInDevelopment_ReturnsHtmlPage()
+    {
+        // Act
+        using HttpResponseMessage response = await _client.GetAsync(ScalarPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (response.Content.Headers.ContentType?.MediaType).Should().Be("text/html");
+        string html = await response.Content.ReadAsStringAsync();
+        html.Should().Contain(OpenApiDocumentPath);
+    }
+
+    [Test]
+    public async Task GetAsync_ScalarInProduction_Returns404WithProblemDetails()
+    {
+        // Act
+        using HttpResponseMessage response = await _productionClient.GetAsync(ScalarPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        (response.Content.Headers.ContentType?.MediaType).Should().Be("application/problem+json");
     }
 
     [Test]
