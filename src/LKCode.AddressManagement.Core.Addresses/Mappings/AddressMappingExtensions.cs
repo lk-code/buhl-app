@@ -52,6 +52,20 @@ public static class AddressMappingExtensions
         ITextNormalizer textNormalizer,
         TimeProvider timeProvider)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(textNormalizer);
+        ArgumentNullException.ThrowIfNull(timeProvider);
+
+        return Address.Create(
+            request.FirstName,
+            request.LastName,
+            request.Street,
+            request.HouseNumber,
+            request.PostalCode,
+            request.City,
+            request.Country,
+            request.Email,
+            textNormalizer,
+            timeProvider);
     }
 }
