@@ -24,6 +24,21 @@ dotnet run --project src/LKCode.AddressManagement.Service
 | OpenAPI-Dokument | `http://localhost:5180/openapi/v1.json` |
 | Scalar (nur in Development) | `http://localhost:5180/scalar` |
 
+## Endpunkte
+
+| Methode | Pfad | Erfolg | Fehler |
+|---|---|---|---|
+| `POST` | `/api/addresses` | `201 Created` mit der Adresse und ihrer URL im `Location`-Header | `400` ungültige Werte oder ungültiges JSON, `415` Body ist kein JSON |
+| `GET` | `/api/addresses/{id}` | `200 OK` mit der Adresse | `404` unbekannte Id oder keine GUID |
+
+Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
+
+```bash
+curl -i -X POST http://localhost:5180/api/addresses \
+  -H "Content-Type: application/json" \
+  -d '{"firstName":"Erika","lastName":"Mustermann","street":"Hauptstrasse","houseNumber":"17","postalCode":"51147","city":"Koeln","country":"DE","email":"erika.mustermann@example.com"}'
+```
+
 ## Tests und Coverage
 
 ```bash
@@ -126,6 +141,22 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - `Program.cs` registriert `AddDomain()`, `AddCoreAddresses()`, `AddData()` und `TimeProvider.System`. Die Controller nutzen System.Text.Json, den Standard von ASP.NET Core; Newtonsoft.Json wird nicht verwendet.
 - Das OpenAPI-Dokument (`Microsoft.AspNetCore.OpenApi`) ist der Vertrag der API und in jeder Umgebung unter `/openapi/v1.json` erreichbar. Die Oberfläche Scalar gibt es nur in `Development`.
 - Der Datenbankname steht in `appsettings.json` (`Data:DatabaseName`).
+
+**API**
+- Der `AddressesController` (`[ApiController]`, Route `api/addresses`) enthält keine Geschäftslogik. Er bereinigt den Request (`Sanitize()`), validiert ihn mit `IValidator<T>` und ruft dann `IAddressService` auf. Bei ungültigen Werten antwortet er mit **400** als `ValidationProblemDetails`, und zwar mit allen Feldfehlern auf einmal.
+- Die Keys der Feldfehler sind die Namen im JSON (`firstName`). `ModelStateDictionaryExtensions.AddValidationErrors` wandelt sie über die Naming-Policy der JSON-Optionen um. Fehler im JSON selbst stehen unter ihrem JSON-Pfad (`$.firstName`).
+- MVC behandelt nicht-nullable Properties nicht als implizite Pflichtfelder (`SuppressImplicitRequiredAttributeForNonNullableReferenceTypes`). Sonst würde MVC fehlende oder leere Felder schon vor der Action ablehnen: ohne Bereinigung, nur mit einem Teil der Fehler und mit anderen Meldungen.
+- Bei ungültigem JSON lautet die Meldung nur „The input was not valid.“ (`AllowInputFormatterExceptionMessages = false`), denn die Meldungen von System.Text.Json enthalten interne Typnamen. Ein leerer Body oder `null` ergibt „A non-empty request body is required.“.
+- Validierungsmeldungen sind immer englisch. Die Lokalisierung von FluentValidation ist abgeschaltet (`ValidatorOptions.Global.LanguageManager.Enabled = false`), sonst richteten sich die Standardmeldungen nach der Sprache des Servers.
+- Der Request-Body muss JSON sein (`[Consumes("application/json")]`), sonst kommt **415**. Wie überall in ASP.NET Core gelten auch Medientypen mit dem Suffix `+json` als JSON; das OpenAPI-Dokument nennt deshalb zusätzlich `application/*+json`.
+- `201 Created` enthält im `Location`-Header die absolute URL der neuen Adresse. Die URL entsteht über die benannte Route `GetAddressById`, weil MVC das Suffix `Async` aus Action-Namen entfernt und `CreatedAtAction(nameof(GetByIdAsync))` deshalb keine Route fände.
+- Unbekannte Ids und Werte, die keine GUID sind (Constraint `{id:guid}`), liefern **404** mit denselben Problem Details wie eine unbekannte Route.
+
+**OpenAPI**
+- Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
+- `LocationHeaderOperationTransformer` beschreibt den `Location`-Header jeder 201-Antwort, denn Attribute können keine Header beschreiben.
+- `AddressSchemaTransformer` ergänzt die Schemas der Requests und von `AddressResponse` aus `AddressConstraints`: `required`, `minLength`/`maxLength`, `pattern` `^[A-Z]{2}$` für `country` sowie `format: email` und `null` als erlaubten Typ für `email`. Die Schemas beschreiben bereinigte Werte; die API nimmt auch Werte mit Leerzeichen am Rand oder `country` in Kleinbuchstaben an.
+- Fallstrick im XML-Kommentar-Generator von .NET 10: Er schreibt die Beschreibung jedes `<param>`, der kein Operation-Parameter ist, an den Request-Body, also auch die des `CancellationToken`. Der Body-Parameter wird deshalb als letzter dokumentiert.
 
 **Fehlerbehandlung**
 - Fehler werden als Problem Details nach RFC 7807 (bzw. Nachfolger RFC 9457) zurückgegeben.
