@@ -112,7 +112,7 @@ public class ErrorHandlingTests
     }
 
     [Test]
-    public async Task GetAsync_UnexpectedExceptionForHtmlClient_Returns500WithoutBody()
+    public async Task GetAsync_UnexpectedExceptionForHtmlClient_ReturnsProblemDetailsWithoutExceptionDetails()
     {
         // Arrange
         using var request = new HttpRequestMessage(HttpMethod.Get, ThrowingController.Path);
@@ -123,7 +123,9 @@ public class ErrorHandlingTests
 
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.InternalServerError);
-        string text = await response.Content.ReadAsStringAsync();
-        text.Should().BeEmpty();
+        (response.Content.Headers.ContentType?.MediaType).Should().Be(ProblemDetailsMediaType);
+        JsonElement body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        body.EnumerateObject().Select(property => property.Name)
+            .Should().BeEquivalentTo("type", "title", "status", "traceId");
     }
 }
