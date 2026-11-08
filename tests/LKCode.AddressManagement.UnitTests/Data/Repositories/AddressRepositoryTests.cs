@@ -326,6 +326,116 @@ public class AddressRepositoryTests
         await act.Should().ThrowAsync<DbUpdateConcurrencyException>();
     }
 
+    [Test]
+    public async Task DeleteAsync_TrackedAddress_RemovesOnlyThisAddress()
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        Address other = CreateAddress(AddressInput.Changed);
+        await SeedAsync(original, other);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+
+        // Act
+        await repository.DeleteAsync(address!, CancellationToken.None);
+
+        // Assert
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(other);
+    }
+
+    [Test]
+    public async Task DeleteAsync_DetachedAddress_RemovesAddress()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        await repository.DeleteAsync(address, CancellationToken.None);
+
+        // Assert
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task DeleteAsync_DeletedAddress_CannotBeLoadedById()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address);
+        await using (AddressDbContext deleteContext = CreateContext())
+        {
+            await new AddressRepository(deleteContext).DeleteAsync(address, CancellationToken.None);
+        }
+
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Address? result = await repository.GetByIdAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Test]
+    public async Task DeleteAsync_NullAddress_ThrowsArgumentNullException()
+    {
+        // Arrange
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Func<Task> act = () => repository.DeleteAsync(null!, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("address");
+    }
+
+    [Test]
+    public async Task DeleteAsync_CanceledToken_ThrowsOperationCanceledExceptionAndKeepsAddress()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        await cancellationTokenSource.CancelAsync();
+
+        // Act
+        Func<Task> act = () => repository.DeleteAsync(address, cancellationTokenSource.Token);
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(address);
+    }
+
+    [Test]
+    public async Task DeleteAsync_NeverSavedAddress_ThrowsDbUpdateConcurrencyException()
+    {
+        // Arrange
+        Address existing = CreateAddress(AddressInput.Valid);
+        await SeedAsync(existing);
+        Address address = CreateAddress(AddressInput.Changed);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Func<Task> act = () => repository.DeleteAsync(address, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<DbUpdateConcurrencyException>();
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(existing);
+    }
+
     private AddressDbContext CreateContext() => new(_options);
 
     private Address CreateAddress(AddressInput input) => Address.Create(
