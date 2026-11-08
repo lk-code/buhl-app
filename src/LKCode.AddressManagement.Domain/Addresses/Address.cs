@@ -4,9 +4,13 @@ using LKCode.AddressManagement.Domain.Contracts;
 namespace LKCode.AddressManagement.Domain.Addresses;
 
 /// <summary>
-/// A postal address of a person. An address can only be created through <see cref="Create"/> and changed through
-/// <see cref="Update"/>, which keep it valid and maintain the normalized fields, the timestamps and the version.
+/// A postal address of a person. An address can only be created through <see cref="Create"/>, changed through
+/// <see cref="Update"/> and deleted through <see cref="Delete"/>, which keep it valid and maintain the normalized fields,
+/// the timestamps and the version.
 /// </summary>
+/// <remarks>
+/// <see cref="Delete"/> only marks the address as deleted (soft delete); a deleted address cannot be changed anymore.
+/// </remarks>
 public sealed class Address
 {
     /// <summary>
@@ -82,7 +86,8 @@ public sealed class Address
     public DateTimeOffset UpdatedAt { get; private set; }
 
     /// <summary>
-    /// Gets the version of the address: 1 after <see cref="Create"/>, increased by one with every change.
+    /// Gets the version of the address: 1 after <see cref="Create"/>, increased by one with every change, including
+    /// <see cref="Delete"/>.
     /// </summary>
     /// <remarks>
     /// The version detects concurrent changes: a change based on an outdated version must be rejected.
@@ -188,6 +193,7 @@ public sealed class Address
     /// A required value is empty or consists only of whitespace, or a value exceeds its maximum length defined in
     /// <see cref="AddressConstraints"/>.
     /// </exception>
+    /// <exception cref="InvalidOperationException">The address is deleted. It stays unchanged.</exception>
     public void Update(
         string firstName,
         string lastName,
@@ -202,6 +208,7 @@ public sealed class Address
     {
         ArgumentNullException.ThrowIfNull(textNormalizer);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        ThrowIfDeleted();
 
         SetValues(
             firstName,
@@ -221,7 +228,31 @@ public sealed class Address
     /// Marks the address as deleted.
     /// </summary>
     /// <param name="timeProvider">The provider of the current time.</param>
-    public void Delete(TimeProvider timeProvider) => throw new NotImplementedException();
+    /// <remarks>
+    /// The values of the address are kept. <see cref="DeletedAt"/> and <see cref="UpdatedAt"/> are set to the current
+    /// time and <see cref="Version"/> is increased by one. A deleted address can neither be changed nor deleted again.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="timeProvider"/> is <see langword="null"/>.</exception>
+    /// <exception cref="InvalidOperationException">The address is already deleted. It stays unchanged.</exception>
+    public void Delete(TimeProvider timeProvider)
+    {
+        ArgumentNullException.ThrowIfNull(timeProvider);
+        ThrowIfDeleted();
+
+        DateTimeOffset now = timeProvider.GetUtcNow();
+        IsDeleted = true;
+        DeletedAt = now;
+        UpdatedAt = now;
+        Version++;
+    }
+
+    private void ThrowIfDeleted()
+    {
+        if (IsDeleted)
+        {
+            throw new InvalidOperationException($"The address {Id} is deleted and cannot be changed.");
+        }
+    }
 
     /// <summary>
     /// Checks and cleans all values first and assigns them afterwards, so that the address stays unchanged if a value
