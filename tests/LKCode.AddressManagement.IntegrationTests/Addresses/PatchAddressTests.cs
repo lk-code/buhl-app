@@ -808,7 +808,8 @@ public class PatchAddressTests
 
     /// <summary>
     /// Asserts that the body of the <paramref name="response"/> contains the values of the
-    /// <paramref name="created"/> address with the <paramref name="changes"/>; the time of the change is ignored.
+    /// <paramref name="created"/> address with the <paramref name="changes"/> and the version of one change; the
+    /// time of the change is ignored.
     /// </summary>
     private static async Task AssertValuesAsync(
         HttpResponseMessage response,
@@ -820,6 +821,8 @@ public class PatchAddressTests
         {
             expected[field] = value;
         }
+
+        expected["version"] = created.Version + 1;
 
         JsonObject actual = (await response.Content.ReadFromJsonAsync<JsonObject>())!;
         expected.Remove("updatedAt");

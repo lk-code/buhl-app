@@ -99,8 +99,11 @@ public class PutAddressTests
         second.StatusCode.Should().Be(HttpStatusCode.OK);
         AddressResponse firstBody = (await first.Content.ReadFromJsonAsync<AddressResponse>())!;
         AddressResponse secondBody = (await second.Content.ReadFromJsonAsync<AddressResponse>())!;
-        secondBody.Should().BeEquivalentTo(firstBody, options => options.Excluding(address => address.UpdatedAt));
+        secondBody.Should().BeEquivalentTo(
+            firstBody,
+            options => options.Excluding(address => address.UpdatedAt).Excluding(address => address.Version));
         secondBody.UpdatedAt.Should().BeOnOrAfter(firstBody.UpdatedAt);
+        secondBody.Version.Should().Be(firstBody.Version + 1);
     }
 
     [Test]
