@@ -3,6 +3,7 @@ using System.Text.Json;
 using AwesomeAssertions;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Testing;
@@ -235,6 +236,107 @@ public class ProblemDetailsExceptionHandlerTests
         record.Exception.Should().BeSameAs(exception);
     }
 
+    [TestCaseSource(nameof(CancellationExceptions))]
+    public async Task TryHandleAsync_ClientAborted_ReturnsTrue(Exception exception)
+    {
+        // Arrange
+        DefaultHttpContext httpContext = CreateAbortedHttpContext();
+
+        // Act
+        bool handled = await _handler.TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        // Assert
+        handled.Should().BeTrue();
+    }
+
+    [TestCaseSource(nameof(CancellationExceptions))]
+    public async Task TryHandleAsync_ClientAborted_SetsStatusCode499(Exception exception)
+    {
+        // Arrange
+        DefaultHttpContext httpContext = CreateAbortedHttpContext();
+
+        // Act
+        await _handler.TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        // Assert
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status499ClientClosedRequest);
+    }
+
+    [TestCaseSource(nameof(CancellationExceptions))]
+    public async Task TryHandleAsync_ClientAborted_WritesNoBody(Exception exception)
+    {
+        // Arrange
+        DefaultHttpContext httpContext = CreateAbortedHttpContext();
+
+        // Act
+        await _handler.TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        // Assert
+        httpContext.Response.Body.Length.Should().Be(0);
+        httpContext.Response.ContentType.Should().BeNull();
+    }
+
+    [TestCaseSource(nameof(CancellationExceptions))]
+    public async Task TryHandleAsync_ClientAborted_LogsInformationWithoutException(Exception exception)
+    {
+        // Arrange
+        DefaultHttpContext httpContext = CreateAbortedHttpContext();
+
+        // Act
+        await _handler.TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        // Assert
+        FakeLogRecord record = _logger.Collector.GetSnapshot().Should().ContainSingle().Which;
+        record.Level.Should().Be(LogLevel.Information);
+        record.Id.Id.Should().Be(2);
+        record.Message.Should().Be($"Request GET {RequestPath} was aborted by the client");
+        record.Exception.Should().BeNull();
+        record.GetStructuredStateValue("RequestMethod").Should().Be("GET");
+        record.GetStructuredStateValue("RequestPath").Should().Be(RequestPath);
+    }
+
+    [TestCaseSource(nameof(CancellationExceptions))]
+    public async Task TryHandleAsync_ClientAbortedAfterResponseStarted_KeepsStatusCode(Exception exception)
+    {
+        // Arrange
+        DefaultHttpContext httpContext = CreateAbortedHttpContext();
+        httpContext.Features.Set<IHttpResponseFeature>(new StartedResponseFeature());
+
+        // Act
+        bool handled = await _handler.TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        // Assert
+        handled.Should().BeTrue();
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
+    }
+
+    [Test]
+    public async Task TryHandleAsync_ClientAbortedWithOtherException_WritesStatusCode500()
+    {
+        // Arrange
+        DefaultHttpContext httpContext = CreateAbortedHttpContext();
+        Exception exception = ThrowAndCatch(new InvalidOperationException(ExceptionMessage));
+
+        // Act
+        bool handled = await _handler.TryHandleAsync(httpContext, exception, CancellationToken.None);
+
+        // Assert
+        handled.Should().BeTrue();
+        httpContext.Response.StatusCode.Should().Be(StatusCodes.Status500InternalServerError);
+        _logger.Collector.GetSnapshot().Should().ContainSingle().Which.Level.Should().Be(LogLevel.Error);
+    }
+
+    /// <summary>
+    /// The exceptions that signal a cancellation; they are only a client abort if the request was aborted.
+    /// </summary>
+    private static IEnumerable<TestCaseData> CancellationExceptions()
+    {
+        yield return new TestCaseData(ThrowAndCatch(new OperationCanceledException()))
+            .SetArgDisplayNames(nameof(OperationCanceledException));
+        yield return new TestCaseData(ThrowAndCatch(new TaskCanceledException()))
+            .SetArgDisplayNames(nameof(TaskCanceledException));
+    }
+
     /// <summary>
     /// Unexpected exceptions, each thrown once so that it has a stack trace. An
     /// <see cref="OperationCanceledException"/> is unexpected as long as the client has not aborted the request.
@@ -276,6 +378,14 @@ public class ProblemDetailsExceptionHandlerTests
         return httpContext;
     }
 
+    private DefaultHttpContext CreateAbortedHttpContext()
+    {
+        DefaultHttpContext httpContext = CreateHttpContext();
+        httpContext.RequestAborted = new CancellationToken(canceled: true);
+
+        return httpContext;
+    }
+
     private static async Task<JsonElement> ReadJsonBodyAsync(HttpContext httpContext)
     {
         httpContext.Response.Body.Position = 0;
@@ -290,5 +400,10 @@ public class ProblemDetailsExceptionHandlerTests
         using var reader = new StreamReader(httpContext.Response.Body, leaveOpen: true);
 
         return await reader.ReadToEndAsync();
+    }
+
+    private sealed class StartedResponseFeature : HttpResponseFeature
+    {
+        public override bool HasStarted => true;
     }
 }
