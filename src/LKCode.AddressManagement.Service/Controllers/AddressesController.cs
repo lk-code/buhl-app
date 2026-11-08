@@ -35,6 +35,7 @@ public sealed class AddressesController(
     IOptions<JsonOptions> jsonOptions) : ControllerBase
 {
     private const string GetByIdRouteName = "GetAddressById";
+    private const string ListRouteName = "ListAddresses";
     private const string CreateRouteName = "CreateAddress";
 
     private readonly IAddressService _addressService =
@@ -87,7 +88,8 @@ public sealed class AddressesController(
     /// </remarks>
     /// <response code="200">The matching addresses; an empty array if none matches.</response>
     /// <response code="500">An unexpected error occurred.</response>
-    [HttpGet]
+    [HttpGet(Name = ListRouteName)]
+    [ProducesResponseType<IReadOnlyList<AddressResponse>>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     public async Task<ActionResult<IReadOnlyList<AddressResponse>>> GetListAsync(
         [FromQuery] string? city,
         [FromQuery] string? postalCode,
