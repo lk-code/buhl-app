@@ -39,6 +39,8 @@ public sealed class AddressesController(
     private const string GetByIdRouteName = "GetAddressById";
     private const string ListRouteName = "ListAddresses";
     private const string CreateRouteName = "CreateAddress";
+    private const string UpdateRouteName = "UpdateAddress";
+    private const string DeleteRouteName = "DeleteAddress";
 
     private readonly IAddressService _addressService =
         addressService ?? throw new ArgumentNullException(nameof(addressService));
@@ -183,8 +185,16 @@ public sealed class AddressesController(
     /// <response code="415">The body is not JSON.</response>
     /// <response code="500">An unexpected error occurred.</response>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
-    [HttpPut("{id:guid}")]
+    [HttpPut("{id:guid}", Name = UpdateRouteName)]
     [Consumes(MediaTypeNames.Application.Json)]
+    [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
+    [ProducesResponseType<ValidationProblemDetails>(
+        StatusCodes.Status400BadRequest,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status415UnsupportedMediaType,
+        MediaTypeNames.Application.ProblemJson)]
     public async Task<ActionResult<AddressResponse>> UpdateAsync(
         Guid id,
         UpdateAddressRequest request,
@@ -223,7 +233,9 @@ public sealed class AddressesController(
     /// <response code="204">The address was deleted.</response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="500">An unexpected error occurred.</response>
-    [HttpDelete("{id:guid}")]
+    [HttpDelete("{id:guid}", Name = DeleteRouteName)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         bool deleted = await _addressService.DeleteAsync(id, cancellationToken);
