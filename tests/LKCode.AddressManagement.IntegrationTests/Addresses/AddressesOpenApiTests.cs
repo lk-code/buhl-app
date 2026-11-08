@@ -1,6 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
 using AwesomeAssertions;
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Domain.Addresses;
 
 namespace LKCode.AddressManagement.IntegrationTests.Addresses;
@@ -336,6 +337,135 @@ public class AddressesOpenApiTests
         JsonElement schema = parameter.GetProperty("schema");
         GetTypes(schema).Should().Equal("string");
         schema.TryGetProperty("maxLength", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void GetListOperation_PageParameter_IsInt32OfAtLeastOneWithDefaultOne()
+    {
+        // Act
+        JsonElement schema = GetListParameterSchema("page");
+
+        // Assert
+        GetTypes(schema).Should().Equal("integer");
+        schema.GetProperty("format").GetString().Should().Be("int32");
+        schema.GetProperty("minimum").GetInt32().Should().Be(1);
+        schema.GetProperty("maximum").GetInt32().Should().Be(int.MaxValue);
+        schema.GetProperty("default").GetInt32().Should().Be(1);
+        schema.TryGetProperty("pattern", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void GetListOperation_PageSizeParameter_IsInt32FromOneToHundredWithDefaultTwenty()
+    {
+        // Act
+        JsonElement schema = GetListParameterSchema("pageSize");
+
+        // Assert
+        GetTypes(schema).Should().Equal("integer");
+        schema.GetProperty("format").GetString().Should().Be("int32");
+        schema.GetProperty("minimum").GetInt32().Should().Be(AddressListConstraints.MinPageSize);
+        schema.GetProperty("maximum").GetInt32().Should().Be(AddressListConstraints.MaxPageSize);
+        schema.GetProperty("default").GetInt32().Should().Be(AddressListConstraints.DefaultPageSize);
+        schema.TryGetProperty("pattern", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void GetListOperation_SortByParameter_IsEnumOfSortFieldsWithDefaultLastName()
+    {
+        // Act
+        JsonElement schema = GetListParameterSchema("sortBy");
+
+        // Assert
+        GetTypes(schema).Should().Equal("string");
+        schema.GetProperty("enum").EnumerateArray().Select(value => value.GetString()).Should().Equal(
+            "lastName",
+            "firstName",
+            "city",
+            "postalCode",
+            "country",
+            "createdAt",
+            "updatedAt");
+        schema.GetProperty("default").GetString().Should().Be("lastName");
+    }
+
+    [Test]
+    public void GetListOperation_SortDirectionParameter_IsEnumOfAscAndDescWithDefaultAsc()
+    {
+        // Act
+        JsonElement schema = GetListParameterSchema("sortDirection");
+
+        // Assert
+        GetTypes(schema).Should().Equal("string");
+        schema.GetProperty("enum").EnumerateArray().Select(value => value.GetString()).Should().Equal("asc", "desc");
+        schema.GetProperty("default").GetString().Should().Be("asc");
+    }
+
+    [TestCase("city")]
+    [TestCase("postalCode")]
+    public void GetListOperation_FilterParameter_HasNoEnumAndNoDefault(string name)
+    {
+        // Act
+        JsonElement schema = GetListParameterSchema(name);
+
+        // Assert
+        schema.TryGetProperty("enum", out _).Should().BeFalse();
+        schema.TryGetProperty("default", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void AddressListResponseSchema_Properties_AreItemsPageAndCountsAndAllRequired()
+    {
+        // Act
+        JsonElement schema = GetSchema("AddressListResponse");
+
+        // Assert
+        GetTypes(schema).Should().Equal("object");
+        GetNames(schema.GetProperty("properties"))
+            .Should().Equal("items", "page", "pageSize", "totalCount", "totalPages");
+        schema.GetProperty("required").EnumerateArray().Select(name => name.GetString())
+            .Should().BeEquivalentTo("items", "page", "pageSize", "totalCount", "totalPages");
+    }
+
+    [Test]
+    public void AddressListResponseSchema_Items_IsArrayOfAddressResponse()
+    {
+        // Act
+        JsonElement items = GetSchema("AddressListResponse").GetProperty("properties").GetProperty("items");
+
+        // Assert
+        GetTypes(items).Should().Equal("array");
+        items.GetProperty("items").GetProperty("$ref").GetString()
+            .Should().Be(SchemaReferencePrefix + "AddressResponse");
+    }
+
+    [TestCase("page", 1, null)]
+    [TestCase("pageSize", 1, 100)]
+    [TestCase("totalCount", 0, null)]
+    [TestCase("totalPages", 0, null)]
+    public void AddressListResponseSchema_Number_IsInt32WithRange(string name, int minimum, int? maximum)
+    {
+        // Act
+        JsonElement number = GetSchema("AddressListResponse").GetProperty("properties").GetProperty(name);
+
+        // Assert
+        GetTypes(number).Should().Equal("integer");
+        number.GetProperty("format").GetString().Should().Be("int32");
+        number.GetProperty("minimum").GetInt32().Should().Be(minimum);
+        (number.TryGetProperty("maximum", out JsonElement value) ? value.GetInt32() : (int?)null)
+            .Should().Be(maximum);
+        number.TryGetProperty("pattern", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void AddressListResponseSchema_Members_HaveDescription()
+    {
+        // Act
+        JsonElement schema = GetSchema("AddressListResponse");
+
+        // Assert
+        schema.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        schema.GetProperty("properties").EnumerateObject().Should().AllSatisfy(member =>
+            member.Value.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace());
     }
 
     [Test]
@@ -847,6 +977,11 @@ public class AddressesOpenApiTests
 
     private JsonElement GetGetListOperation() =>
         _document.GetProperty("paths").GetProperty("/api/addresses").GetProperty("get");
+
+    private JsonElement GetListParameterSchema(string name) =>
+        GetGetListOperation().GetProperty("parameters").EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == name)
+            .GetProperty("schema");
 
     private JsonElement GetGetByIdOperation() =>
         _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("get");
