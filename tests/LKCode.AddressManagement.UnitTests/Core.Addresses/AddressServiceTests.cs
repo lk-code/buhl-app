@@ -693,17 +693,65 @@ public class AddressServiceTests
     }
 
     [Test]
-    public async Task DeleteAsync_KnownId_DeletesAddressAndReturnsSuccess()
+    public async Task UpdateAsync_AfterDeletion_ReturnsNotFoundAndSavesNothing()
     {
         // Arrange
         Address address = CreateStoredAddress();
+        ReturnNullAfterFirstLoad(address);
+        await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
+        _addressRepository.ClearReceivedCalls();
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        AddressChangeResult result =
+            await _service.UpdateAsync(address.Id, expectedVersion: 2, request, CancellationToken.None);
+
+        // Assert
+        result.Should().Be(AddressChangeResult.NotFound);
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default, default);
+    }
+
+    [Test]
+    public async Task UpdateAsync_RepositoryReturnsDeletedAddress_ThrowsInvalidOperationExceptionAndSavesNothing()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        address.Delete(_timeProvider);
+        UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
+
+        // Act
+        Func<Task> act = () => _service.UpdateAsync(address.Id, expectedVersion: 2, request, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        AddressInput.From(address).Should().Be(AddressInput.Valid);
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default, default);
+    }
+
+    [Test]
+    public async Task DeleteAsync_KnownId_MarksAddressAsDeletedSavesItAndReturnsSuccess()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        bool? deletedWhenSaved = null;
+        _addressRepository.UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>())
+            .Returns(call =>
+            {
+                deletedWhenSaved = call.Arg<Address>().IsDeleted;
+                return ChangeStatus.Success;
+            });
 
         // Act
         ChangeStatus status = await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
 
         // Assert
         status.Should().Be(ChangeStatus.Success);
-        await _addressRepository.Received(1).DeleteAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>());
+        deletedWhenSaved.Should().BeTrue();
+        address.IsDeleted.Should().BeTrue();
+        address.DeletedAt.Should().Be(_startTime);
+        address.Version.Should().Be(2);
+        AddressInput.From(address).Should().Be(AddressInput.Valid);
+        await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
     [TestCase(1L)]
@@ -718,11 +766,11 @@ public class AddressServiceTests
         await _service.DeleteAsync(address.Id, expectedVersion, CancellationToken.None);
 
         // Assert
-        await _addressRepository.Received(1).DeleteAsync(address, expectedVersion, Arg.Any<CancellationToken>());
+        await _addressRepository.Received(1).UpdateAsync(address, expectedVersion, Arg.Any<CancellationToken>());
     }
 
     [Test]
-    public async Task DeleteAsync_UnknownId_ReturnsNotFoundAndDeletesNothing()
+    public async Task DeleteAsync_UnknownId_ReturnsNotFoundAndSavesNothing()
     {
         // Arrange
         var id = Guid.CreateVersion7();
@@ -732,7 +780,44 @@ public class AddressServiceTests
 
         // Assert
         status.Should().Be(ChangeStatus.NotFound);
-        await _addressRepository.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default, default);
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default, default);
+    }
+
+    [TestCase(1L)]
+    [TestCase(2L)]
+    [TestCase(null)]
+    public async Task DeleteAsync_CalledAgainAfterDeletion_ReturnsNotFoundAndSavesOnlyOnce(long? expectedVersion)
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        ReturnNullAfterFirstLoad(address);
+        ChangeStatus firstStatus =
+            await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
+
+        // Act
+        ChangeStatus status = await _service.DeleteAsync(address.Id, expectedVersion, CancellationToken.None);
+
+        // Assert
+        firstStatus.Should().Be(ChangeStatus.Success);
+        status.Should().Be(ChangeStatus.NotFound);
+        address.Version.Should().Be(2);
+        await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task DeleteAsync_RepositoryReturnsDeletedAddress_ThrowsInvalidOperationExceptionAndSavesNothing()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        address.Delete(_timeProvider);
+
+        // Act
+        Func<Task> act = () => _service.DeleteAsync(address.Id, expectedVersion: 2, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        address.Version.Should().Be(2);
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default, default);
     }
 
     [TestCase(ChangeStatus.NotFound)]
@@ -741,7 +826,7 @@ public class AddressServiceTests
     {
         // Arrange
         Address address = CreateStoredAddress();
-        ReturnOnDelete(address, repositoryStatus);
+        ReturnOnUpdate(address, repositoryStatus);
 
         // Act
         ChangeStatus status = await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
@@ -762,7 +847,7 @@ public class AddressServiceTests
 
         // Assert
         await _addressRepository.Received(1).GetByIdAsync(address.Id, cancellationTokenSource.Token);
-        await _addressRepository.Received(1).DeleteAsync(address, Arg.Any<long?>(), cancellationTokenSource.Token);
+        await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<long?>(), cancellationTokenSource.Token);
     }
 
     [Test]
@@ -796,7 +881,7 @@ public class AddressServiceTests
     {
         // Arrange
         Address address = CreateStoredAddress();
-        ReturnOnDelete(address, ChangeStatus.NotFound);
+        ReturnOnUpdate(address, ChangeStatus.NotFound);
 
         // Act
         await _service.DeleteAsync(address.Id, expectedVersion: 1, CancellationToken.None);
@@ -813,7 +898,7 @@ public class AddressServiceTests
     {
         // Arrange
         Address address = CreateStoredAddress();
-        ReturnOnDelete(address, ChangeStatus.VersionMismatch);
+        ReturnOnUpdate(address, ChangeStatus.VersionMismatch);
 
         // Act
         await _service.DeleteAsync(address.Id, expectedVersion, CancellationToken.None);
@@ -833,7 +918,7 @@ public class AddressServiceTests
     {
         // Arrange
         Address address = CreateStoredAddress();
-        _addressRepository.DeleteAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>())
+        _addressRepository.UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
         // Act
@@ -847,8 +932,12 @@ public class AddressServiceTests
     private void ReturnOnUpdate(Address address, ChangeStatus status) =>
         _addressRepository.UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>()).Returns(status);
 
-    private void ReturnOnDelete(Address address, ChangeStatus status) =>
-        _addressRepository.DeleteAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>()).Returns(status);
+    /// <summary>
+    /// Lets the repository return the <paramref name="address"/> only once and <see langword="null"/> afterwards, like
+    /// the real repository after the address was deleted.
+    /// </summary>
+    private void ReturnNullAfterFirstLoad(Address address) =>
+        _addressRepository.GetByIdAsync(address.Id, Arg.Any<CancellationToken>()).Returns(address, null);
 
     /// <summary>
     /// Creates an address with the given values and lets the repository return it for its id. Unknown ids return
