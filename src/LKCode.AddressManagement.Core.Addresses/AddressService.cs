@@ -52,11 +52,24 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public Task<IReadOnlyList<AddressResponse>> GetListAsync(
+    public async Task<IReadOnlyList<AddressResponse>> GetListAsync(
         AddressListQuery query,
         CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(query);
+
+        string? normalizedCity = string.IsNullOrWhiteSpace(query.City)
+            ? null
+            : _textNormalizer.Normalize(query.City);
+        string? normalizedPostalCode = string.IsNullOrWhiteSpace(query.PostalCode)
+            ? null
+            : _textNormalizer.NormalizePostalCode(query.PostalCode);
+
+        IReadOnlyList<Address> addresses =
+            await _addressRepository.ListAsync(normalizedCity, normalizedPostalCode, cancellationToken);
+        LogAddressesListed(_logger, addresses.Count, normalizedCity, normalizedPostalCode);
+
+        return [.. addresses.Select(address => address.ToResponse())];
     }
 
     /// <inheritdoc />
@@ -94,4 +107,14 @@ public sealed partial class AddressService(
 
     [LoggerMessage(EventId = 3, Level = LogLevel.Debug, Message = "Address {AddressId} was not found")]
     private static partial void LogAddressNotFound(ILogger logger, Guid addressId);
+
+    [LoggerMessage(
+        EventId = 4,
+        Level = LogLevel.Debug,
+        Message = "Listed {Count} addresses for city {NormalizedCity} and postal code {NormalizedPostalCode}")]
+    private static partial void LogAddressesListed(
+        ILogger logger,
+        int count,
+        string? normalizedCity,
+        string? normalizedPostalCode);
 }
