@@ -154,6 +154,93 @@ public class AddressesOpenApiTests
     }
 
     [Test]
+    public void GetListOperation_OperationId_IsListAddresses()
+    {
+        // Act
+        JsonElement operation = GetGetListOperation();
+
+        // Assert
+        operation.GetProperty("operationId").GetString().Should().Be("ListAddresses");
+    }
+
+    [Test]
+    public void GetListOperation_Responses_ContainAllStatusCodes()
+    {
+        // Act
+        JsonElement responses = GetGetListOperation().GetProperty("responses");
+
+        // Assert
+        GetNames(responses).Should().BeEquivalentTo("200", "500");
+    }
+
+    [Test]
+    public void GetListOperation_OkResponse_HasOnlyJsonWithArrayOfAddressResponse()
+    {
+        // Act
+        JsonElement response = GetGetListOperation().GetProperty("responses").GetProperty("200");
+
+        // Assert
+        response.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        response.TryGetProperty("headers", out _).Should().BeFalse();
+        JsonElement content = response.GetProperty("content");
+        GetNames(content).Should().Equal(JsonMediaType);
+        JsonElement schema = content.GetProperty(JsonMediaType).GetProperty("schema");
+        GetTypes(schema).Should().Equal("array");
+        schema.GetProperty("items").GetProperty("$ref").GetString()
+            .Should().Be(SchemaReferencePrefix + "AddressResponse");
+    }
+
+    [Test]
+    public void GetListOperation_ErrorResponse_HasOnlyProblemDetails()
+    {
+        // Act
+        JsonElement content = GetGetListOperation().GetProperty("responses").GetProperty("500").GetProperty("content");
+
+        // Assert
+        GetNames(content).Should().Equal(ProblemDetailsMediaType);
+        GetSchemaReference(content.GetProperty(ProblemDetailsMediaType))
+            .Should().Be(SchemaReferencePrefix + "ProblemDetails");
+    }
+
+    [Test]
+    public void GetListOperation_Parameters_AreCityAndPostalCode()
+    {
+        // Act
+        JsonElement parameters = GetGetListOperation().GetProperty("parameters");
+
+        // Assert
+        parameters.EnumerateArray().Select(parameter => parameter.GetProperty("name").GetString())
+            .Should().Equal("city", "postalCode");
+    }
+
+    [TestCase("city")]
+    [TestCase("postalCode")]
+    public void GetListOperation_FilterParameter_IsOptionalStringInQuery(string name)
+    {
+        // Act
+        JsonElement parameter = GetGetListOperation().GetProperty("parameters").EnumerateArray()
+            .Single(parameter => parameter.GetProperty("name").GetString() == name);
+
+        // Assert
+        parameter.GetProperty("in").GetString().Should().Be("query");
+        (parameter.TryGetProperty("required", out JsonElement required) && required.GetBoolean()).Should().BeFalse();
+        parameter.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        JsonElement schema = parameter.GetProperty("schema");
+        GetTypes(schema).Should().Equal("string");
+        schema.TryGetProperty("maxLength", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void GetListOperation_RequestBody_DoesNotExist()
+    {
+        // Act
+        JsonElement operation = GetGetListOperation();
+
+        // Assert
+        operation.TryGetProperty("requestBody", out _).Should().BeFalse();
+    }
+
+    [Test]
     public void ProblemDetailsSchema_Properties_AreMembersOfRfc9457()
     {
         // Act
@@ -302,6 +389,9 @@ public class AddressesOpenApiTests
 
     private JsonElement GetPostOperation() =>
         _document.GetProperty("paths").GetProperty("/api/addresses").GetProperty("post");
+
+    private JsonElement GetGetListOperation() =>
+        _document.GetProperty("paths").GetProperty("/api/addresses").GetProperty("get");
 
     private JsonElement GetGetByIdOperation() =>
         _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("get");

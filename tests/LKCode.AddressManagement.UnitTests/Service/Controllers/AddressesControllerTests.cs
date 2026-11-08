@@ -163,6 +163,55 @@ public class AddressesControllerTests
         await _addressService.Received(1).GetByIdAsync(_address.Id, cancellationTokenSource.Token);
     }
 
+    [TestCase("sol", "426")]
+    [TestCase("sol", null)]
+    [TestCase(null, "426")]
+    [TestCase(null, null)]
+    [TestCase(" ", "")]
+    public async Task GetListAsync_Filters_PassesQueryAndCancellationToken(string? city, string? postalCode)
+    {
+        // Arrange
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _controller.GetListAsync(city, postalCode, cancellationTokenSource.Token);
+
+        // Assert
+        await _addressService.Received(1)
+            .GetListAsync(new AddressListQuery(city, postalCode), cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task GetListAsync_MatchingAddresses_ReturnsOkWithAddresses()
+    {
+        // Arrange
+        IReadOnlyList<AddressResponse> addresses = [_address, _address with { Id = Guid.CreateVersion7(_createdAt) }];
+        _addressService.GetListAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>()).Returns(addresses);
+
+        // Act
+        ActionResult<IReadOnlyList<AddressResponse>> result =
+            await _controller.GetListAsync("Köln", null, CancellationToken.None);
+
+        // Assert
+        result.Result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(addresses);
+    }
+
+    [Test]
+    public async Task GetListAsync_NoMatches_ReturnsOkWithEmptyList()
+    {
+        // Arrange
+        IReadOnlyList<AddressResponse> noAddresses = [];
+        _addressService.GetListAsync(Arg.Any<AddressListQuery>(), Arg.Any<CancellationToken>()).Returns(noAddresses);
+
+        // Act
+        ActionResult<IReadOnlyList<AddressResponse>> result =
+            await _controller.GetListAsync("Berlin", null, CancellationToken.None);
+
+        // Assert
+        result.Result.Should().BeOfType<OkObjectResult>()
+            .Which.Value.Should().BeAssignableTo<IReadOnlyList<AddressResponse>>().Which.Should().BeEmpty();
+    }
+
     [Test]
     public async Task CreateAsync_NullRequest_ThrowsArgumentNullException()
     {
