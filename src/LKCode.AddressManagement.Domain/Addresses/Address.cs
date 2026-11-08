@@ -5,7 +5,7 @@ namespace LKCode.AddressManagement.Domain.Addresses;
 
 /// <summary>
 /// A postal address of a person. An address can only be created through <see cref="Create"/> and changed through
-/// <see cref="Update"/>, which keep it valid and maintain the normalized fields and timestamps.
+/// <see cref="Update"/>, which keep it valid and maintain the normalized fields, the timestamps and the version.
 /// </summary>
 public sealed class Address
 {
@@ -82,6 +82,14 @@ public sealed class Address
     public DateTimeOffset UpdatedAt { get; private set; }
 
     /// <summary>
+    /// Gets the version of the address: 1 after <see cref="Create"/>, increased by one with every change.
+    /// </summary>
+    /// <remarks>
+    /// The version detects concurrent changes: a change based on an outdated version must be rejected.
+    /// </remarks>
+    public long Version { get; private set; }
+
+    /// <summary>
     /// Creates a new address.
     /// </summary>
     /// <param name="firstName">The first name.</param>
@@ -127,6 +135,7 @@ public sealed class Address
         {
             Id = Guid.CreateVersion7(now),
             CreatedAt = now,
+            Version = 1,
         };
         address.SetValues(
             firstName,
@@ -158,8 +167,8 @@ public sealed class Address
     /// <param name="timeProvider">The provider of the current time.</param>
     /// <remarks>
     /// The values are cleaned like in <see cref="Create"/>. The normalized fields and <see cref="UpdatedAt"/> are
-    /// updated, <see cref="Id"/> and <see cref="CreatedAt"/> stay unchanged. If a value is invalid, the address stays
-    /// unchanged.
+    /// updated and <see cref="Version"/> is increased by one, even if no value differs. <see cref="Id"/> and
+    /// <see cref="CreatedAt"/> stay unchanged. If a value is invalid, the address stays unchanged.
     /// </remarks>
     /// <exception cref="ArgumentNullException">
     /// A required value, <paramref name="textNormalizer"/> or <paramref name="timeProvider"/> is
@@ -195,6 +204,7 @@ public sealed class Address
             email,
             textNormalizer,
             timeProvider.GetUtcNow());
+        Version++;
     }
 
     /// <summary>

@@ -14,6 +14,10 @@ namespace LKCode.AddressManagement.Core.Addresses.Dtos;
 /// <param name="Email">The email address, or <see langword="null"/> if none is set.</param>
 /// <param name="CreatedAt">The point in time the address was created.</param>
 /// <param name="UpdatedAt">The point in time the address was last changed.</param>
+/// <param name="Version">
+/// The version of the address: 1 after the creation, increased by one with every change. It is also sent as the
+/// entity tag in the <c>ETag</c> header and is expected in the <c>If-Match</c> header of a change.
+/// </param>
 public sealed record AddressResponse(
     Guid Id,
     string FirstName,
@@ -25,4 +29,5 @@ public sealed record AddressResponse(
     string Country,
     string? Email,
     DateTimeOffset CreatedAt,
-    DateTimeOffset UpdatedAt);
+    DateTimeOffset UpdatedAt,
+    long Version);

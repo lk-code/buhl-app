@@ -59,7 +59,21 @@ public class AddressMappingExtensionsTests
             "GB",
             "max.musterfrau@example.org",
             _startTime,
-            _startTime.AddHours(2)));
+            _startTime.AddHours(2),
+            2));
+    }
+
+    [Test]
+    public void ToResponse_NewAddress_MapsVersionOne()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+
+        // Act
+        AddressResponse response = address.ToResponse();
+
+        // Assert
+        response.Version.Should().Be(1);
     }
 
     [Test]

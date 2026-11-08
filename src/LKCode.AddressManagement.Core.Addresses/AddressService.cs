@@ -1,6 +1,7 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.Domain.Contracts;
 using Microsoft.Extensions.Logging;
@@ -15,7 +16,8 @@ namespace LKCode.AddressManagement.Core.Addresses;
 /// <param name="timeProvider">The provider of the current time.</param>
 /// <param name="logger">The logger.</param>
 /// <remarks>
-/// Only ids, counts and normalized filters are logged, never personal data such as names or email addresses.
+/// Only ids, versions, counts and normalized filters are logged, never personal data such as names or email
+/// addresses.
 /// </remarks>
 /// <exception cref="ArgumentNullException">A parameter is <see langword="null"/>.</exception>
 public sealed partial class AddressService(
@@ -85,8 +87,9 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public async Task<AddressResponse?> UpdateAsync(
+    public async Task<AddressChangeResult> UpdateAsync(
         Guid id,
+        long? expectedVersion,
         UpdateAddressRequest request,
         CancellationToken cancellationToken)
     {
@@ -96,30 +99,50 @@ public sealed partial class AddressService(
         if (address is null)
         {
             LogAddressNotFound(_logger, id);
-            return null;
+            return AddressChangeResult.NotFound;
         }
 
         request.ApplyTo(address, _textNormalizer, _timeProvider);
-        await _addressRepository.UpdateAsync(address, cancellationToken);
-        LogAddressUpdated(_logger, id);
-
-        return address.ToResponse();
+        ChangeStatus status = await _addressRepository.UpdateAsync(address, expectedVersion, cancellationToken);
+        switch (status)
+        {
+            case ChangeStatus.Success:
+                LogAddressUpdated(_logger, id);
+                return AddressChangeResult.Success(address.ToResponse());
+            case ChangeStatus.NotFound:
+                LogAddressNotFound(_logger, id);
+                return AddressChangeResult.NotFound;
+            default:
+                LogVersionMismatch(_logger, id, expectedVersion);
+                return AddressChangeResult.VersionMismatch;
+        }
     }
 
     /// <inheritdoc />
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<ChangeStatus> DeleteAsync(Guid id, long? expectedVersion, CancellationToken cancellationToken)
     {
         Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
         if (address is null)
         {
             LogAddressNotFound(_logger, id);
-            return false;
+            return ChangeStatus.NotFound;
         }
 
-        await _addressRepository.DeleteAsync(address, cancellationToken);
-        LogAddressDeleted(_logger, id);
+        ChangeStatus status = await _addressRepository.DeleteAsync(address, expectedVersion, cancellationToken);
+        switch (status)
+        {
+            case ChangeStatus.Success:
+                LogAddressDeleted(_logger, id);
+                break;
+            case ChangeStatus.NotFound:
+                LogAddressNotFound(_logger, id);
+                break;
+            default:
+                LogVersionMismatch(_logger, id, expectedVersion);
+                break;
+        }
 
-        return true;
+        return status;
     }
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Created address {AddressId}")]
@@ -146,4 +169,10 @@ public sealed partial class AddressService(
 
     [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "Deleted address {AddressId}")]
     private static partial void LogAddressDeleted(ILogger logger, Guid addressId);
+
+    [LoggerMessage(
+        EventId = 7,
+        Level = LogLevel.Information,
+        Message = "Address {AddressId} was not saved: its version differs from the expected version {ExpectedVersion}")]
+    private static partial void LogVersionMismatch(ILogger logger, Guid addressId, long? expectedVersion);
 }

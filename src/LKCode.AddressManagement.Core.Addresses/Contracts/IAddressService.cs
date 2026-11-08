@@ -1,4 +1,5 @@
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Core.Addresses.Results;
 
 namespace LKCode.AddressManagement.Core.Addresses.Contracts;
 
@@ -41,25 +42,41 @@ public interface IAddressService
     Task<AddressResponse> CreateAsync(CreateAddressRequest request, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Replaces all values of the address with the given id and saves it.
+    /// Replaces all values of the address with the given id and saves it if it still has the expected version.
     /// </summary>
     /// <param name="id">The id of the address.</param>
+    /// <param name="expectedVersion">
+    /// The version the client expects the address to have; <see langword="null"/> to change the address in any
+    /// version. Even then, a change by someone else between loading and saving is detected.
+    /// </param>
     /// <param name="request">The sanitized and validated new values of the address.</param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
-    /// <returns>The changed address, or <see langword="null"/> if there is no address with the id.</returns>
+    /// <returns>
+    /// The result with the changed address; or with the status <see cref="ChangeStatus.NotFound"/> if there is no
+    /// address with the id, or <see cref="ChangeStatus.VersionMismatch"/> if its version differs.
+    /// </returns>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
     /// <exception cref="ArgumentException">
     /// A value of the request is invalid. The address stays unchanged.
     /// </exception>
-    Task<AddressResponse?> UpdateAsync(Guid id, UpdateAddressRequest request, CancellationToken cancellationToken);
+    Task<AddressChangeResult> UpdateAsync(
+        Guid id,
+        long? expectedVersion,
+        UpdateAddressRequest request,
+        CancellationToken cancellationToken);
 
     /// <summary>
-    /// Deletes the address with the given id.
+    /// Deletes the address with the given id if it still has the expected version.
     /// </summary>
     /// <param name="id">The id of the address.</param>
+    /// <param name="expectedVersion">
+    /// The version the client expects the address to have; <see langword="null"/> to delete the address in any
+    /// version. Even then, a change by someone else between loading and deleting is detected.
+    /// </param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <returns>
-    /// <see langword="true"/> if the address was deleted; <see langword="false"/> if there is no address with the id.
+    /// <see cref="ChangeStatus.Success"/> if the address was deleted; <see cref="ChangeStatus.NotFound"/> if there is
+    /// no address with the id; <see cref="ChangeStatus.VersionMismatch"/> if its version differs.
     /// </returns>
-    Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken);
+    Task<ChangeStatus> DeleteAsync(Guid id, long? expectedVersion, CancellationToken cancellationToken);
 }

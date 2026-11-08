@@ -12,7 +12,7 @@ namespace LKCode.AddressManagement.Service.OpenApiTransformers;
 
 /// <summary>
 /// Describes the constraints of the values of an address in the OpenAPI schemas of the address requests and of
-/// <see cref="AddressResponse"/>.
+/// <see cref="AddressResponse"/>, including its version.
 /// </summary>
 /// <remarks>
 /// The maximum lengths come from <see cref="AddressConstraints"/>, the single source of the validation, the database
@@ -81,9 +81,29 @@ public sealed class AddressSchemaTransformer : IOpenApiSchemaTransformer
         else if (type == typeof(AddressResponse))
         {
             ApplyConstraints(schema, context.JsonTypeInfo, requireAll: true);
+            DescribeVersion(schema, context.JsonTypeInfo);
         }
 
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Describes <see cref="AddressResponse.Version"/> as the 64-bit integer the API writes, starting at 1. The
+    /// generated schema also allows a string, because the JSON options allow reading numbers from strings.
+    /// </summary>
+    private static void DescribeVersion(OpenApiSchema schema, JsonTypeInfo typeInfo)
+    {
+        JsonPropertyInfo? property = typeInfo.Properties.FirstOrDefault(property =>
+            (property.AttributeProvider as MemberInfo)?.Name == nameof(AddressResponse.Version));
+        if (property is not null
+            && schema.Properties?.TryGetValue(property.Name, out IOpenApiSchema? value) == true
+            && value is OpenApiSchema versionSchema)
+        {
+            versionSchema.Type = JsonSchemaType.Integer;
+            versionSchema.Format = "int64";
+            versionSchema.Minimum = "1";
+            versionSchema.Pattern = null;
+        }
     }
 
     private static void ApplyConstraints(OpenApiSchema schema, JsonTypeInfo typeInfo, bool requireAll)

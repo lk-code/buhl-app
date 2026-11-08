@@ -81,6 +81,19 @@ public class AddressTests
     }
 
     [Test]
+    public void Create_ValidInput_SetsVersionToOne()
+    {
+        // Arrange
+        AddressInput input = AddressInput.Valid;
+
+        // Act
+        Address address = Create(input);
+
+        // Assert
+        address.Version.Should().Be(1);
+    }
+
+    [Test]
     public void Create_ValidInput_SetsNormalizedFieldsFromTrimmedValues()
     {
         // Arrange
@@ -314,6 +327,37 @@ public class AddressTests
         address.UpdatedAt.Should().Be(_startTime.AddHours(2));
     }
 
+    [TestCase(1, 2)]
+    [TestCase(2, 3)]
+    [TestCase(5, 6)]
+    public void Update_ValidInput_IncrementsVersionByOne(int updates, long expectedVersion)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+
+        // Act
+        for (int update = 0; update < updates; update++)
+        {
+            Update(address, update % 2 == 0 ? AddressInput.Changed : AddressInput.Valid);
+        }
+
+        // Assert
+        address.Version.Should().Be(expectedVersion);
+    }
+
+    [Test]
+    public void Update_SameValues_IncrementsVersion()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+
+        // Act
+        Update(address, AddressInput.Valid);
+
+        // Assert
+        address.Version.Should().Be(2);
+    }
+
     [Test]
     public void Update_ValidInput_UpdatesNormalizedFieldsFromTrimmedValues()
     {
@@ -488,6 +532,7 @@ public class AddressTests
             address.NormalizedPostalCode,
             address.CreatedAt,
             address.UpdatedAt,
+            address.Version,
         };
         _timeProvider.Advance(TimeSpan.FromHours(2));
         AddressInput input = field.With(AddressInput.Changed, field.ValueExceedingMaxLength);

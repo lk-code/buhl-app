@@ -220,11 +220,14 @@ public class PatchAddressMalformedRequestTests
         body.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
     }
 
+    /// <summary>
+    /// Sends the <paramref name="body"/> with <c>If-Match: *</c>, so that only the body decides the outcome.
+    /// </summary>
     private async Task<HttpResponseMessage> PatchAsync(Guid id, string body, string mediaType)
     {
         using var content = new StringContent(body, Encoding.UTF8);
         content.Headers.ContentType = MediaTypeHeaderValue.Parse(mediaType);
 
-        return await _client.PatchAsync($"{Path}/{id}", content);
+        return await _client.SendWithIfMatchAsync(HttpMethod.Patch, $"{Path}/{id}", content, "*");
     }
 }

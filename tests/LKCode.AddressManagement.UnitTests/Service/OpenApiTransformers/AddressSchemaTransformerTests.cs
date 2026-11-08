@@ -96,7 +96,32 @@ public class AddressSchemaTransformerTests
         await _transformer.TransformAsync(schema, CreateContext(typeof(AddressResponse)), CancellationToken.None);
 
         // Assert
-        schema.Required.Should().BeEquivalentTo([.. _requestValues, "id", "createdAt", "updatedAt"]);
+        schema.Required.Should().BeEquivalentTo([.. _requestValues, "id", "createdAt", "updatedAt", "version"]);
+    }
+
+    [Test]
+    public async Task TransformAsync_AddressResponse_DescribesVersionAsInt64OfAtLeastOne()
+    {
+        // Arrange
+        OpenApiSchema schema = CreateSchema(typeof(AddressResponse));
+        schema.Properties!["version"] = new OpenApiSchema
+        {
+            Type = JsonSchemaType.Integer | JsonSchemaType.String,
+            Format = "int64",
+            Pattern = "^-?(?:0|[1-9]\\d*)$",
+            Description = "The version of the address.",
+        };
+
+        // Act
+        await _transformer.TransformAsync(schema, CreateContext(typeof(AddressResponse)), CancellationToken.None);
+
+        // Assert
+        IOpenApiSchema version = schema.Properties["version"];
+        version.Type.Should().Be(JsonSchemaType.Integer);
+        version.Format.Should().Be("int64");
+        version.Minimum.Should().Be("1");
+        version.Pattern.Should().BeNull();
+        version.Description.Should().Be("The version of the address.");
     }
 
     [TestCaseSource(nameof(RequiredValuesOfAllTypes))]

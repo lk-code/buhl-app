@@ -30,12 +30,14 @@ public static class AddressMappingExtensions
             address.Country,
             address.Email,
             address.CreatedAt,
-            address.UpdatedAt);
+            address.UpdatedAt,
+            address.Version);
     }
 
     /// <summary>
     /// Maps the <paramref name="response"/> to a request that replaces all values of the address with its current
-    /// values, e.g. as the starting point of a partial change.
+    /// values, e.g. as the starting point of a partial change. The version is no value of a request and is not
+    /// mapped.
     /// </summary>
     /// <param name="response">The address to map.</param>
     /// <returns>The request with the values of the address.</returns>
