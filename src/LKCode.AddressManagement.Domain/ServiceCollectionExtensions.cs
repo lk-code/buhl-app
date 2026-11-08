@@ -1,4 +1,7 @@
+using LKCode.AddressManagement.Domain.Contracts;
+using LKCode.AddressManagement.Domain.Normalizers;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace LKCode.AddressManagement.Domain;
 
@@ -13,6 +16,12 @@ public static class ServiceCollectionExtensions
     /// <param name="services">The service collection to add the services to.</param>
     /// <returns>The same service collection for chaining.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="services"/> is <see langword="null"/>.</exception>
-    public static IServiceCollection AddDomain(this IServiceCollection services) =>
-        throw new NotImplementedException();
+    public static IServiceCollection AddDomain(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton<ITextNormalizer, TextNormalizer>();
+
+        return services;
+    }
 }
