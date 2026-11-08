@@ -110,6 +110,104 @@ public class AddressRepositoryTests
         stored.Should().BeEmpty();
     }
 
+    [Test]
+    public async Task GetByIdAsync_ExistingId_ReturnsAddressWithAllFields()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        Address other = CreateAddress(AddressInput.Changed);
+        await SeedAsync(address, other);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Address? result = await repository.GetByIdAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        result.Should().NotBeNull();
+        result.Should().NotBeSameAs(address);
+        result.Should().BeEquivalentTo(address);
+    }
+
+    [Test]
+    public async Task GetByIdAsync_ExistingId_ReturnsTrackedAddress()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Address? result = await repository.GetByIdAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        result.Should().NotBeNull();
+        context.Entry(result!).State.Should().Be(EntityState.Unchanged);
+    }
+
+    [Test]
+    public async Task GetByIdAsync_UnknownId_ReturnsNull()
+    {
+        // Arrange
+        await SeedAsync(CreateAddress(AddressInput.Valid));
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Address? result = await repository.GetByIdAsync(Guid.CreateVersion7(), CancellationToken.None);
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Test]
+    public async Task GetByIdAsync_EmptyGuid_ReturnsNull()
+    {
+        // Arrange
+        await SeedAsync(CreateAddress(AddressInput.Valid));
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Address? result = await repository.GetByIdAsync(Guid.Empty, CancellationToken.None);
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Test]
+    public async Task GetByIdAsync_EmptyDatabase_ReturnsNull()
+    {
+        // Arrange
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Address? result = await repository.GetByIdAsync(Guid.CreateVersion7(), CancellationToken.None);
+
+        // Assert
+        result.Should().BeNull();
+    }
+
+    [Test]
+    public async Task GetByIdAsync_CanceledToken_ThrowsOperationCanceledException()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        await cancellationTokenSource.CancelAsync();
+
+        // Act
+        Func<Task> act = () => repository.GetByIdAsync(address.Id, cancellationTokenSource.Token);
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+    }
+
     private AddressDbContext CreateContext() => new(_options);
 
     private Address CreateAddress(AddressInput input) => Address.Create(
@@ -123,6 +221,13 @@ public class AddressRepositoryTests
         input.Email,
         _textNormalizer,
         _timeProvider);
+
+    private async Task SeedAsync(params Address[] addresses)
+    {
+        await using AddressDbContext context = CreateContext();
+        context.Addresses.AddRange(addresses);
+        await context.SaveChangesAsync();
+    }
 
     private async Task<IReadOnlyList<Address>> LoadAllAsync()
     {
