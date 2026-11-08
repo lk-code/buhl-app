@@ -80,7 +80,7 @@ public class OpenApiTests
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (response.Content.Headers.ContentType?.MediaType).Should().Be("text/html");
         string html = await response.Content.ReadAsStringAsync();
-        html.Should().Contain(OpenApiDocumentPath);
+        html.Should().Contain(OpenApiDocumentPath.TrimStart('/'));
     }
 
     [Test]

@@ -3,6 +3,7 @@ using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Scalar.AspNetCore;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -28,6 +29,11 @@ app.UseStatusCodePages();
 
 // The OpenAPI document is the contract of the API and is therefore available in every environment.
 app.MapOpenApi();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapScalarApiReference();
+}
 
 app.MapControllers();
 
