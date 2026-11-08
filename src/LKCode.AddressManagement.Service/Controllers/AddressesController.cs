@@ -184,10 +184,28 @@ public sealed class AddressesController(
     /// <response code="500">An unexpected error occurred.</response>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
     [HttpPut("{id:guid}")]
-    public Task<ActionResult<AddressResponse>> UpdateAsync(
+    [Consumes(MediaTypeNames.Application.Json)]
+    public async Task<ActionResult<AddressResponse>> UpdateAsync(
         Guid id,
         UpdateAddressRequest request,
-        CancellationToken cancellationToken) => throw new NotImplementedException();
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        UpdateAddressRequest sanitizedRequest = request.Sanitize();
+        ValidationResult validationResult =
+            await _updateAddressValidator.ValidateAsync(sanitizedRequest, cancellationToken);
+        if (!validationResult.IsValid)
+        {
+            ModelState.AddValidationErrors(validationResult, _jsonNamingPolicy);
+
+            return ValidationProblem(ModelState);
+        }
+
+        AddressResponse? address = await _addressService.UpdateAsync(id, sanitizedRequest, cancellationToken);
+
+        return address is null ? NotFound() : Ok(address);
+    }
 
     /// <summary>
     /// Deletes the address with the given id.
