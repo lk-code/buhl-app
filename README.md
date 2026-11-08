@@ -16,6 +16,14 @@ dotnet restore
 dotnet run --project src/LKCode.AddressManagement.Service
 ```
 
+`dotnet run` nutzt das Profil `http` aus `launchSettings.json` (Umgebung `Development`):
+
+| Was | URL |
+|---|---|
+| API | `http://localhost:5180` |
+| OpenAPI-Dokument | `http://localhost:5180/openapi/v1.json` |
+| Scalar (nur in Development) | `http://localhost:5180/scalar` |
+
 ## Tests und Coverage
 
 ```bash
@@ -25,6 +33,8 @@ dotnet run coverage.cs -- --threshold 90     # zusätzlich Mindestabdeckung prü
 ```
 
 Der HTML-Report liegt danach unter `coverage/report/index.html`. Mit `--threshold` schlägt das Skript fehl, wenn die gesamte Line-Coverage unter dem Wert liegt; solange es keinen abdeckbaren Code gibt, wird die Prüfung übersprungen.
+
+Die Integrationstests starten den Dienst über `AddressManagementWebApplicationFactory` im Speicher. Jede Instanz der Factory verwendet eine eigene InMemory-Datenbank mit eindeutigem Namen; Tests bzw. Fixtures, die eine eigene Factory erzeugen, beeinflussen sich dadurch nicht. Eine Deklaration `public partial class Program` ist dafür nicht nötig: Seit .NET 10 erzeugt ein Source-Generator die Klasse selbst als `public`, eine eigene Deklaration meldet der Analyzer ASP0027 als überflüssig.
 
 ## CI
 
@@ -64,6 +74,8 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 | Paket | Lizenz | Verwendung |
 |---|---|---|
 | FluentValidation | Apache-2.0 | Validierung der Requests |
+| Scalar.AspNetCore | MIT | Oberfläche für das OpenAPI-Dokument |
+| Serilog.AspNetCore | Apache-2.0 | Strukturiertes Logging und Request-Logging |
 | NUnit | MIT | Testframework |
 | NUnit3TestAdapter | MIT | NUnit-Runner für Microsoft.Testing.Platform |
 | NUnit.Analyzers | MIT | Analyzer für NUnit-Tests |
@@ -110,9 +122,18 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Die Listenfilter werden vor der Suche mit `ITextNormalizer` normalisiert. Fehlende oder leere Filter werden ignoriert.
 - Der Service wird über `AddCoreAddresses()` als Scoped registriert, passend zum Repository. Repository, `ITextNormalizer`, `TimeProvider` und Logging registrieren `AddData()`, `AddDomain()` und der Host.
 
+**Service-Host**
+- `Program.cs` registriert `AddDomain()`, `AddCoreAddresses()`, `AddData()` und `TimeProvider.System`. Die Controller nutzen System.Text.Json, den Standard von ASP.NET Core; Newtonsoft.Json wird nicht verwendet.
+- Das OpenAPI-Dokument (`Microsoft.AspNetCore.OpenApi`) ist der Vertrag der API und in jeder Umgebung unter `/openapi/v1.json` erreichbar. Die Oberfläche Scalar gibt es nur in `Development`.
+- Der Datenbankname steht in `appsettings.json` (`Data:DatabaseName`).
+
 **Fehlerbehandlung**
 - Fehler werden als Problem Details nach RFC 7807 (bzw. Nachfolger RFC 9457) zurückgegeben.
 - Erwartbare Fälle (nicht gefunden, ungültige Eingabe) laufen über Rückgabewerte, Exceptions nur bei unerwarteten Fehlern.
+- Unerwartete Exceptions übersetzt der globale `ProblemDetailsExceptionHandler` (`IExceptionHandler`) in **500** mit Problem Details. Die Antwort enthält nur `type`, `title`, `status` und die `traceId`, über die sich der Eintrag im Log finden lässt; Message, Exception-Typ und Stacktrace gehen nicht nach außen, auch nicht in `Development`. Der Handler loggt die Exception vollständig auf `Error`, denn seit .NET 10 loggt die Middleware Exceptions nicht mehr, die ein Handler behandelt hat.
+- Fehlerantworten ohne Body (z. B. 404 für eine unbekannte Route) ergänzt `UseStatusCodePages()` um Problem Details.
+- Controller mit `[ApiController]` antworten auch Clients, die nur `text/html` akzeptieren, mit Problem Details. Für andere Endpunkte hält sich ASP.NET Core an den `Accept`-Header; ohne JSON antwortet es dort ohne Problem Details.
+- Client-Abbruch: Bricht der Client eine Anfrage ab, ist die folgende `OperationCanceledException` kein Fehler. In .NET 10 erkennt das bereits die `ExceptionHandlerMiddleware`, bevor sie einen `IExceptionHandler` aufruft: Sie setzt **499** (Client Closed Request) und loggt nur auf `Debug`. Das Serilog-Request-Log protokolliert den Abbruch mit Status 499 auf `Information`. Der Handler behandelt den Fall trotzdem selbst (Information-Log, 499, kein Body), damit er auch für sich allein korrekt ist. Eine `OperationCanceledException` ohne Client-Abbruch (z. B. ein interner Timeout) gilt als unerwarteter Fehler und ergibt 500.
 - Gelöschte Adressen liefern 404 wie unbekannte. Es ist nicht erkennbar, ob ein Datensatz existiert hat.
 - `Country` ist ein ISO-3166-1-Alpha-2-Code (z. B. `DE`).
 
@@ -132,7 +153,10 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 **Logging**
 - Strukturiertes Logging über `ILogger` mit Message-Templates. Die Log-Methoden erzeugt der Source-Generator `[LoggerMessage]`: Die Templates werden beim Build geprüft, und die Argumente werden nur verarbeitet, wenn das Level aktiv ist.
 - Geloggt werden nur Ids, Anzahlen und normalisierte Filter, keine personenbezogenen Daten wie Namen oder E-Mail-Adressen. Änderungen (Anlegen, Ändern, Löschen) laufen auf `Information`, Lesezugriffe und „nicht gefunden“ auf `Debug`.
-- Serilog schreibt aktuell nur in die Konsole. Langfristig ist die Ausgabe in Dateien oder zentrale Dienste (z. B. Seq, Elasticsearch, Application Insights) sinnvoll; dafür ist nur Konfiguration nötig.
+- Serilog schreibt aktuell nur in die Konsole: in `Development` als lesbarer Text inklusive der strukturierten Properties, in allen anderen Umgebungen als kompaktes JSON (`CompactJsonFormatter`), das Log-Aggregatoren direkt verarbeiten können. Die Level stehen im Abschnitt `Serilog:MinimumLevel` der Konfiguration; `Microsoft.AspNetCore` und `Microsoft.EntityFrameworkCore` laufen auf `Warning`, in `Development` die eigenen Namespaces auf `Debug`.
+- Das Request-Logging von Serilog schreibt pro Anfrage einen Eintrag mit Methode, Pfad, Status und Dauer (500 und mehr auf `Error`). Es steht ganz außen in der Pipeline und sieht deshalb den endgültigen Status.
+- Der statische Serilog-Logger bleibt unberührt, damit sich mehrere Hosts in einem Prozess (z. B. in Tests) keinen Logger teilen. Zusätzliche Sinks lassen sich auch per Dependency Injection registrieren (`ReadFrom.Services`); die Integrationstests nutzen das, um Log-Einträge zu prüfen.
+- Langfristig ist die Ausgabe in Dateien oder zentrale Dienste (z. B. Seq, Elasticsearch, Application Insights) sinnvoll; dafür sind nur das Sink-Paket und Konfiguration nötig.
 
 ## Authentifizierung
 
