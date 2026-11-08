@@ -2,6 +2,7 @@ using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Data.Repositories;
 using LKCode.AddressManagement.IntegrationTests.Fakes;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -38,5 +39,63 @@ public static class WebApplicationFactoryExtensions
                 provider.GetRequiredService<AddressRepository>(),
                 rendezvous));
         }));
+    }
+
+    /// <summary>
+    /// Creates a factory whose output cache store records every stored response; the store is the
+    /// <see cref="RecordingOutputCacheStore"/> returned by <see cref="GetRecordingOutputCacheStore"/>.
+    /// </summary>
+    public static WebApplicationFactory<Program> WithRecordingOutputCacheStore(
+        this WebApplicationFactory<Program> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        return factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+        {
+            ServiceDescriptor original = services.Single(descriptor =>
+                descriptor.ServiceType == typeof(IOutputCacheStore));
+            Func<IServiceProvider, object> createOriginal = original.ImplementationFactory
+                ?? throw new InvalidOperationException("The output cache store is not registered with a factory.");
+            services.Remove(original);
+            services.AddSingleton<IOutputCacheStore>(provider =>
+                new RecordingOutputCacheStore((IOutputCacheStore)createOriginal(provider)));
+        }));
+    }
+
+    /// <summary>
+    /// Gets the store of a factory created by <see cref="WithRecordingOutputCacheStore"/>.
+    /// </summary>
+    public static RecordingOutputCacheStore GetRecordingOutputCacheStore(this WebApplicationFactory<Program> factory)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        return (RecordingOutputCacheStore)factory.Services.GetRequiredService<IOutputCacheStore>();
+    }
+
+    /// <summary>
+    /// Creates a factory whose host uses the <paramref name="addressService"/> instead of the real service.
+    /// </summary>
+    public static WebApplicationFactory<Program> WithAddressService(
+        this WebApplicationFactory<Program> factory,
+        IAddressService addressService)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        return factory.WithWebHostBuilder(builder => builder.ConfigureTestServices(services =>
+            services.AddScoped(_ => addressService)));
+    }
+
+    /// <summary>
+    /// Creates a factory whose host has the configuration value <paramref name="value"/> under the
+    /// <paramref name="key"/>.
+    /// </summary>
+    public static WebApplicationFactory<Program> WithSetting(
+        this WebApplicationFactory<Program> factory,
+        string key,
+        string value)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        return factory.WithWebHostBuilder(builder => builder.UseSetting(key, value));
     }
 }
