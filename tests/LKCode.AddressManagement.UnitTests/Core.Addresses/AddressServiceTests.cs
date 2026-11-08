@@ -217,6 +217,95 @@ public class AddressServiceTests
         await _addressRepository.DidNotReceiveWithAnyArgs().AddAsync(default!, default);
     }
 
+    [Test]
+    public async Task GetByIdAsync_KnownId_ReturnsResponse()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+
+        // Act
+        AddressResponse? response = await _service.GetByIdAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        response.Should().Be(address.ToResponse());
+    }
+
+    [Test]
+    public async Task GetByIdAsync_UnknownId_ReturnsNull()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7();
+
+        // Act
+        AddressResponse? response = await _service.GetByIdAsync(id, CancellationToken.None);
+
+        // Assert
+        response.Should().BeNull();
+    }
+
+    [Test]
+    public async Task GetByIdAsync_AnyId_PassesIdAndCancellationToken()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7();
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _service.GetByIdAsync(id, cancellationTokenSource.Token);
+
+        // Assert
+        await _addressRepository.Received(1).GetByIdAsync(id, cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task GetByIdAsync_KnownId_LogsLoadedAddress()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+
+        // Act
+        await _service.GetByIdAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Debug, 2, $"Loaded address {address.Id}", address.Id);
+    }
+
+    [Test]
+    public async Task GetByIdAsync_UnknownId_LogsNotFound()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7();
+
+        // Act
+        await _service.GetByIdAsync(id, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {id} was not found", id);
+    }
+
+    /// <summary>
+    /// Creates an address with the given values and lets the repository return it for its id. Unknown ids return
+    /// <see langword="null"/>.
+    /// </summary>
+    private Address CreateStoredAddress(AddressInput? input = null)
+    {
+        input ??= AddressInput.Valid;
+        var address = Address.Create(
+            input.FirstName,
+            input.LastName,
+            input.Street,
+            input.HouseNumber,
+            input.PostalCode,
+            input.City,
+            input.Country,
+            input.Email,
+            _textNormalizer,
+            _timeProvider);
+        _addressRepository.GetByIdAsync(address.Id, Arg.Any<CancellationToken>()).Returns(address);
+
+        return address;
+    }
+
     /// <summary>
     /// Returns the address passed to the only call of <see cref="IAddressRepository.AddAsync"/>.
     /// </summary>
