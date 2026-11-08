@@ -1,4 +1,5 @@
 using AwesomeAssertions;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Data.Repositories;
 using LKCode.AddressManagement.Domain.Addresses;
@@ -208,8 +209,9 @@ public class AddressRepositoryTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
-    [Test]
-    public async Task UpdateAsync_TrackedAddressChanged_PersistsAllChanges()
+    [TestCase(1L)]
+    [TestCase(null)]
+    public async Task UpdateAsync_TrackedAddressChanged_PersistsAllChangesAndReturnsSuccess(long? expectedVersion)
     {
         // Arrange
         Address original = CreateAddress(AddressInput.Valid);
@@ -221,9 +223,10 @@ public class AddressRepositoryTests
         UpdateAddress(address!, AddressInput.Changed);
 
         // Act
-        await repository.UpdateAsync(address!, CancellationToken.None);
+        ChangeStatus status = await repository.UpdateAsync(address!, expectedVersion, CancellationToken.None);
 
         // Assert
+        status.Should().Be(ChangeStatus.Success);
         IReadOnlyList<Address> stored = await LoadAllAsync();
         Address storedAddress = stored.Should().ContainSingle().Subject;
         AddressInput.From(storedAddress).Should().Be(AddressInput.Changed);
@@ -232,10 +235,11 @@ public class AddressRepositoryTests
         storedAddress.NormalizedPostalCode.Should().Be("SW1A1AA");
         storedAddress.CreatedAt.Should().Be(_startTime);
         storedAddress.UpdatedAt.Should().Be(_startTime.AddMinutes(5));
+        storedAddress.Version.Should().Be(2);
     }
 
     [Test]
-    public async Task UpdateAsync_DetachedAddressChanged_ThrowsDbUpdateConcurrencyExceptionAndSavesNothing()
+    public async Task UpdateAsync_DetachedAddressWithExpectedVersion_PersistsAllChangesAndReturnsSuccess()
     {
         // Arrange
         Address address = CreateAddress(AddressInput.Valid);
@@ -245,13 +249,140 @@ public class AddressRepositoryTests
         var repository = new AddressRepository(context);
 
         // Act
-        Func<Task> act = () => repository.UpdateAsync(address, CancellationToken.None);
+        ChangeStatus status = await repository.UpdateAsync(address, expectedVersion: 1, CancellationToken.None);
 
         // Assert
-        await act.Should().ThrowAsync<DbUpdateConcurrencyException>();
-        Address stored = (await LoadAllAsync()).Should().ContainSingle().Subject;
-        AddressInput.From(stored).Should().Be(AddressInput.Valid);
-        stored.Version.Should().Be(1);
+        status.Should().Be(ChangeStatus.Success);
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(address);
+    }
+
+    [Test]
+    public async Task UpdateAsync_DetachedAddressWithoutExpectedVersion_ReturnsVersionMismatchAndSavesNothing()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address);
+        UpdateAddress(address, AddressInput.Changed);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        ChangeStatus status = await repository.UpdateAsync(address, expectedVersion: null, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(ChangeStatus.VersionMismatch);
+        await AssertStoredUnchangedAsync(AddressInput.Valid, expectedVersion: 1);
+    }
+
+    [TestCase(0L)]
+    [TestCase(2L)]
+    [TestCase(3L)]
+    [TestCase(long.MaxValue)]
+    public async Task UpdateAsync_ExpectedVersionNotStored_ReturnsVersionMismatchAndSavesNothing(long expectedVersion)
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        UpdateAddress(address!, AddressInput.Changed);
+
+        // Act
+        ChangeStatus status = await repository.UpdateAsync(address!, expectedVersion, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(ChangeStatus.VersionMismatch);
+        await AssertStoredUnchangedAsync(AddressInput.Valid, expectedVersion: 1);
+    }
+
+    [TestCase(1L)]
+    [TestCase(null)]
+    public async Task UpdateAsync_AddressChangedInOtherContext_ReturnsVersionMismatchAndKeepsOtherChange(
+        long? expectedVersion)
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        await using AddressDbContext otherContext = CreateContext();
+        var repository = new AddressRepository(context);
+        var otherRepository = new AddressRepository(otherContext);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        Address? otherAddress = await otherRepository.GetByIdAsync(original.Id, CancellationToken.None);
+        UpdateAddress(otherAddress!, AddressInput.Changed);
+        ChangeStatus otherStatus =
+            await otherRepository.UpdateAsync(otherAddress!, expectedVersion: 1, CancellationToken.None);
+        UpdateAddress(address!, AddressInput.Valid with { FirstName = "Erika-Maria" });
+
+        // Act
+        ChangeStatus status = await repository.UpdateAsync(address!, expectedVersion, CancellationToken.None);
+
+        // Assert
+        otherStatus.Should().Be(ChangeStatus.Success);
+        status.Should().Be(ChangeStatus.VersionMismatch);
+        await AssertStoredUnchangedAsync(AddressInput.Changed, expectedVersion: 2);
+    }
+
+    [Test]
+    public async Task UpdateAsync_AddressDeletedInOtherContext_ReturnsNotFound()
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        await using AddressDbContext otherContext = CreateContext();
+        var repository = new AddressRepository(context);
+        var otherRepository = new AddressRepository(otherContext);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        Address? otherAddress = await otherRepository.GetByIdAsync(original.Id, CancellationToken.None);
+        await otherRepository.DeleteAsync(otherAddress!, expectedVersion: 1, CancellationToken.None);
+        UpdateAddress(address!, AddressInput.Changed);
+
+        // Act
+        ChangeStatus status = await repository.UpdateAsync(address!, expectedVersion: 1, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(ChangeStatus.NotFound);
+        (await LoadAllAsync()).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task UpdateAsync_NeverSavedAddress_ReturnsNotFoundAndSavesNothing()
+    {
+        // Arrange
+        await SeedAsync(CreateAddress(AddressInput.Valid));
+        Address address = CreateAddress(AddressInput.Changed);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        ChangeStatus status = await repository.UpdateAsync(address, expectedVersion: 1, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(ChangeStatus.NotFound);
+        await AssertStoredUnchangedAsync(AddressInput.Valid, expectedVersion: 1);
+    }
+
+    [TestCase(2L, ChangeStatus.VersionMismatch)]
+    [TestCase(null, ChangeStatus.NotFound)]
+    public async Task UpdateAsync_Failed_StopsTrackingAddress(long? expectedVersion, ChangeStatus expectedStatus)
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        Address address = expectedVersion is null ? CreateAddress(AddressInput.Changed) : original;
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        ChangeStatus status = await repository.UpdateAsync(address, expectedVersion, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(expectedStatus);
+        context.Entry(address).State.Should().Be(EntityState.Detached);
+        (await context.SaveChangesAsync()).Should().Be(0);
     }
 
     [Test]
@@ -268,7 +399,7 @@ public class AddressRepositoryTests
         UpdateAddress(address!, AddressInput.Changed);
 
         // Act
-        await repository.UpdateAsync(address!, CancellationToken.None);
+        await repository.UpdateAsync(address!, expectedVersion: 1, CancellationToken.None);
 
         // Assert
         IReadOnlyList<Address> stored = await LoadAllAsync();
@@ -284,7 +415,7 @@ public class AddressRepositoryTests
         var repository = new AddressRepository(context);
 
         // Act
-        Func<Task> act = () => repository.UpdateAsync(null!, CancellationToken.None);
+        Func<Task> act = () => repository.UpdateAsync(null!, expectedVersion: 1, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("address");
@@ -304,7 +435,7 @@ public class AddressRepositoryTests
         await cancellationTokenSource.CancelAsync();
 
         // Act
-        Func<Task> act = () => repository.UpdateAsync(address!, cancellationTokenSource.Token);
+        Func<Task> act = () => repository.UpdateAsync(address!, expectedVersion: 1, cancellationTokenSource.Token);
 
         // Assert
         await act.Should().ThrowAsync<OperationCanceledException>();
@@ -312,24 +443,9 @@ public class AddressRepositoryTests
         stored.Should().ContainSingle().Which.Should().BeEquivalentTo(original);
     }
 
-    [Test]
-    public async Task UpdateAsync_NeverSavedAddress_ThrowsDbUpdateConcurrencyException()
-    {
-        // Arrange
-        await SeedAsync(CreateAddress(AddressInput.Valid));
-        Address address = CreateAddress(AddressInput.Changed);
-        await using AddressDbContext context = CreateContext();
-        var repository = new AddressRepository(context);
-
-        // Act
-        Func<Task> act = () => repository.UpdateAsync(address, CancellationToken.None);
-
-        // Assert
-        await act.Should().ThrowAsync<DbUpdateConcurrencyException>();
-    }
-
-    [Test]
-    public async Task DeleteAsync_TrackedAddress_RemovesOnlyThisAddress()
+    [TestCase(1L)]
+    [TestCase(null)]
+    public async Task DeleteAsync_TrackedAddress_RemovesOnlyThisAddressAndReturnsSuccess(long? expectedVersion)
     {
         // Arrange
         Address original = CreateAddress(AddressInput.Valid);
@@ -340,15 +456,17 @@ public class AddressRepositoryTests
         Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
 
         // Act
-        await repository.DeleteAsync(address!, CancellationToken.None);
+        ChangeStatus status = await repository.DeleteAsync(address!, expectedVersion, CancellationToken.None);
 
         // Assert
+        status.Should().Be(ChangeStatus.Success);
         IReadOnlyList<Address> stored = await LoadAllAsync();
         stored.Should().ContainSingle().Which.Should().BeEquivalentTo(other);
     }
 
-    [Test]
-    public async Task DeleteAsync_DetachedAddress_RemovesAddress()
+    [TestCase(1L)]
+    [TestCase(null)]
+    public async Task DeleteAsync_DetachedAddress_RemovesAddressAndReturnsSuccess(long? expectedVersion)
     {
         // Arrange
         Address address = CreateAddress(AddressInput.Valid);
@@ -357,11 +475,120 @@ public class AddressRepositoryTests
         var repository = new AddressRepository(context);
 
         // Act
-        await repository.DeleteAsync(address, CancellationToken.None);
+        ChangeStatus status = await repository.DeleteAsync(address, expectedVersion, CancellationToken.None);
 
         // Assert
+        status.Should().Be(ChangeStatus.Success);
         IReadOnlyList<Address> stored = await LoadAllAsync();
         stored.Should().BeEmpty();
+    }
+
+    [TestCase(0L)]
+    [TestCase(2L)]
+    [TestCase(long.MaxValue)]
+    public async Task DeleteAsync_ExpectedVersionNotStored_ReturnsVersionMismatchAndKeepsAddress(long expectedVersion)
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+
+        // Act
+        ChangeStatus status = await repository.DeleteAsync(address!, expectedVersion, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(ChangeStatus.VersionMismatch);
+        await AssertStoredUnchangedAsync(AddressInput.Valid, expectedVersion: 1);
+    }
+
+    [TestCase(1L)]
+    [TestCase(null)]
+    public async Task DeleteAsync_AddressChangedInOtherContext_ReturnsVersionMismatchAndKeepsAddress(
+        long? expectedVersion)
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        await using AddressDbContext otherContext = CreateContext();
+        var repository = new AddressRepository(context);
+        var otherRepository = new AddressRepository(otherContext);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        Address? otherAddress = await otherRepository.GetByIdAsync(original.Id, CancellationToken.None);
+        UpdateAddress(otherAddress!, AddressInput.Changed);
+        await otherRepository.UpdateAsync(otherAddress!, expectedVersion: 1, CancellationToken.None);
+
+        // Act
+        ChangeStatus status = await repository.DeleteAsync(address!, expectedVersion, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(ChangeStatus.VersionMismatch);
+        await AssertStoredUnchangedAsync(AddressInput.Changed, expectedVersion: 2);
+    }
+
+    [Test]
+    public async Task DeleteAsync_AddressDeletedInOtherContext_ReturnsNotFound()
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        await using AddressDbContext otherContext = CreateContext();
+        var repository = new AddressRepository(context);
+        var otherRepository = new AddressRepository(otherContext);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        Address? otherAddress = await otherRepository.GetByIdAsync(original.Id, CancellationToken.None);
+        ChangeStatus otherStatus =
+            await otherRepository.DeleteAsync(otherAddress!, expectedVersion: 1, CancellationToken.None);
+
+        // Act
+        ChangeStatus status = await repository.DeleteAsync(address!, expectedVersion: 1, CancellationToken.None);
+
+        // Assert
+        otherStatus.Should().Be(ChangeStatus.Success);
+        status.Should().Be(ChangeStatus.NotFound);
+        (await LoadAllAsync()).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task DeleteAsync_NeverSavedAddress_ReturnsNotFoundAndKeepsOtherAddresses()
+    {
+        // Arrange
+        Address existing = CreateAddress(AddressInput.Valid);
+        await SeedAsync(existing);
+        Address address = CreateAddress(AddressInput.Changed);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        ChangeStatus status = await repository.DeleteAsync(address, expectedVersion: 1, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(ChangeStatus.NotFound);
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(existing);
+    }
+
+    [TestCase(2L, ChangeStatus.VersionMismatch)]
+    [TestCase(null, ChangeStatus.NotFound)]
+    public async Task DeleteAsync_Failed_StopsTrackingAddress(long? expectedVersion, ChangeStatus expectedStatus)
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        Address address = expectedVersion is null ? CreateAddress(AddressInput.Changed) : original;
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        ChangeStatus status = await repository.DeleteAsync(address, expectedVersion, CancellationToken.None);
+
+        // Assert
+        status.Should().Be(expectedStatus);
+        context.Entry(address).State.Should().Be(EntityState.Detached);
+        (await context.SaveChangesAsync()).Should().Be(0);
     }
 
     [Test]
@@ -372,7 +599,7 @@ public class AddressRepositoryTests
         await SeedAsync(address);
         await using (AddressDbContext deleteContext = CreateContext())
         {
-            await new AddressRepository(deleteContext).DeleteAsync(address, CancellationToken.None);
+            await new AddressRepository(deleteContext).DeleteAsync(address, expectedVersion: 1, CancellationToken.None);
         }
 
         await using AddressDbContext context = CreateContext();
@@ -393,7 +620,7 @@ public class AddressRepositoryTests
         var repository = new AddressRepository(context);
 
         // Act
-        Func<Task> act = () => repository.DeleteAsync(null!, CancellationToken.None);
+        Func<Task> act = () => repository.DeleteAsync(null!, expectedVersion: 1, CancellationToken.None);
 
         // Assert
         await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("address");
@@ -411,31 +638,12 @@ public class AddressRepositoryTests
         await cancellationTokenSource.CancelAsync();
 
         // Act
-        Func<Task> act = () => repository.DeleteAsync(address, cancellationTokenSource.Token);
+        Func<Task> act = () => repository.DeleteAsync(address, expectedVersion: 1, cancellationTokenSource.Token);
 
         // Assert
         await act.Should().ThrowAsync<OperationCanceledException>();
         IReadOnlyList<Address> stored = await LoadAllAsync();
         stored.Should().ContainSingle().Which.Should().BeEquivalentTo(address);
-    }
-
-    [Test]
-    public async Task DeleteAsync_NeverSavedAddress_ThrowsDbUpdateConcurrencyException()
-    {
-        // Arrange
-        Address existing = CreateAddress(AddressInput.Valid);
-        await SeedAsync(existing);
-        Address address = CreateAddress(AddressInput.Changed);
-        await using AddressDbContext context = CreateContext();
-        var repository = new AddressRepository(context);
-
-        // Act
-        Func<Task> act = () => repository.DeleteAsync(address, CancellationToken.None);
-
-        // Assert
-        await act.Should().ThrowAsync<DbUpdateConcurrencyException>();
-        IReadOnlyList<Address> stored = await LoadAllAsync();
-        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(existing);
     }
 
     [Test]
@@ -776,6 +984,17 @@ public class AddressRepositoryTests
         await using AddressDbContext context = CreateContext();
 
         return await context.Addresses.AsNoTracking().ToListAsync();
+    }
+
+    /// <summary>
+    /// Asserts that the only stored address has the values of the <paramref name="expectedInput"/> and the
+    /// <paramref name="expectedVersion"/>.
+    /// </summary>
+    private async Task AssertStoredUnchangedAsync(AddressInput expectedInput, long expectedVersion)
+    {
+        Address stored = (await LoadAllAsync()).Should().ContainSingle().Subject;
+        AddressInput.From(stored).Should().Be(expectedInput);
+        stored.Version.Should().Be(expectedVersion);
     }
 
     /// <summary>

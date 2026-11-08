@@ -1,4 +1,5 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using Microsoft.EntityFrameworkCore;
 
@@ -48,20 +49,10 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     }
 
     /// <inheritdoc />
-    public async Task UpdateAsync(Address address, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(address);
-
-        _dbContext.Addresses.Update(address);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-    }
+    public Task<ChangeStatus> UpdateAsync(Address address, long? expectedVersion, CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 
     /// <inheritdoc />
-    public async Task DeleteAsync(Address address, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(address);
-
-        _dbContext.Addresses.Remove(address);
-        await _dbContext.SaveChangesAsync(cancellationToken);
-    }
+    public Task<ChangeStatus> DeleteAsync(Address address, long? expectedVersion, CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 }

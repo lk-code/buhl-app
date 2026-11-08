@@ -425,7 +425,7 @@ public class AddressServiceTests
 
         // Assert
         AddressInput.From(address).Should().Be(AddressInput.Changed);
-        await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<CancellationToken>());
+        await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -502,7 +502,7 @@ public class AddressServiceTests
 
         // Assert
         response.Should().BeNull();
-        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default, default);
     }
 
     [Test]
@@ -518,7 +518,7 @@ public class AddressServiceTests
 
         // Assert
         await _addressRepository.Received(1).GetByIdAsync(address.Id, cancellationTokenSource.Token);
-        await _addressRepository.Received(1).UpdateAsync(address, cancellationTokenSource.Token);
+        await _addressRepository.Received(1).UpdateAsync(address, Arg.Any<long?>(), cancellationTokenSource.Token);
     }
 
     [Test]
@@ -555,7 +555,7 @@ public class AddressServiceTests
         // Arrange
         Address address = CreateStoredAddress();
         UpdateAddressRequest request = AddressInput.Changed.ToUpdateRequest();
-        _addressRepository.UpdateAsync(address, Arg.Any<CancellationToken>())
+        _addressRepository.UpdateAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
         // Act
@@ -579,7 +579,7 @@ public class AddressServiceTests
         // Assert
         await act.Should().ThrowAsync<ArgumentException>().WithParameterName("city");
         AddressInput.From(address).Should().Be(AddressInput.Valid);
-        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default);
+        await _addressRepository.DidNotReceiveWithAnyArgs().UpdateAsync(default!, default, default);
         _logger.Collector.Count.Should().Be(0);
     }
 
@@ -609,7 +609,7 @@ public class AddressServiceTests
 
         // Assert
         deleted.Should().BeTrue();
-        await _addressRepository.Received(1).DeleteAsync(address, Arg.Any<CancellationToken>());
+        await _addressRepository.Received(1).DeleteAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>());
     }
 
     [Test]
@@ -623,7 +623,7 @@ public class AddressServiceTests
 
         // Assert
         deleted.Should().BeFalse();
-        await _addressRepository.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default);
+        await _addressRepository.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default, default);
     }
 
     [Test]
@@ -638,7 +638,7 @@ public class AddressServiceTests
 
         // Assert
         await _addressRepository.Received(1).GetByIdAsync(address.Id, cancellationTokenSource.Token);
-        await _addressRepository.Received(1).DeleteAsync(address, cancellationTokenSource.Token);
+        await _addressRepository.Received(1).DeleteAsync(address, Arg.Any<long?>(), cancellationTokenSource.Token);
     }
 
     [Test]
@@ -672,7 +672,7 @@ public class AddressServiceTests
     {
         // Arrange
         Address address = CreateStoredAddress();
-        _addressRepository.DeleteAsync(address, Arg.Any<CancellationToken>())
+        _addressRepository.DeleteAsync(address, Arg.Any<long?>(), Arg.Any<CancellationToken>())
             .ThrowsAsync(new OperationCanceledException());
 
         // Act

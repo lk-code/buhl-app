@@ -100,7 +100,7 @@ public sealed partial class AddressService(
         }
 
         request.ApplyTo(address, _textNormalizer, _timeProvider);
-        await _addressRepository.UpdateAsync(address, cancellationToken);
+        await _addressRepository.UpdateAsync(address, expectedVersion: null, cancellationToken);
         LogAddressUpdated(_logger, id);
 
         return address.ToResponse();
@@ -116,7 +116,7 @@ public sealed partial class AddressService(
             return false;
         }
 
-        await _addressRepository.DeleteAsync(address, cancellationToken);
+        await _addressRepository.DeleteAsync(address, expectedVersion: null, cancellationToken);
         LogAddressDeleted(_logger, id);
 
         return true;

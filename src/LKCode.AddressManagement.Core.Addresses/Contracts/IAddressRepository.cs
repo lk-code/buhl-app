@@ -1,3 +1,4 @@
+using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 
 namespace LKCode.AddressManagement.Core.Addresses.Contracts;
@@ -49,20 +50,42 @@ public interface IAddressRepository
     Task AddAsync(Address address, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Saves the changes of an existing address.
+    /// Saves the changes of an existing address if its stored version is the expected one.
     /// </summary>
     /// <param name="address">The changed address.</param>
+    /// <param name="expectedVersion">
+    /// The version the stored address must have, i.e. the version before the change; <see langword="null"/> to expect
+    /// the version the address had when it was loaded with <see cref="GetByIdAsync"/>.
+    /// </param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
-    /// <returns>A task that completes when the changes are saved.</returns>
+    /// <returns>
+    /// <see cref="ChangeStatus.Success"/> if the changes were saved; <see cref="ChangeStatus.NotFound"/> if the
+    /// address is not stored (anymore); <see cref="ChangeStatus.VersionMismatch"/> if its stored version differs.
+    /// </returns>
+    /// <remarks>
+    /// The version is checked when saving, so that a change in the meantime is detected, too. If nothing was saved,
+    /// the address is no longer tracked.
+    /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="address"/> is <see langword="null"/>.</exception>
-    Task UpdateAsync(Address address, CancellationToken cancellationToken);
+    Task<ChangeStatus> UpdateAsync(Address address, long? expectedVersion, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Deletes an existing address and saves the deletion.
+    /// Deletes an existing address and saves the deletion if its stored version is the expected one.
     /// </summary>
     /// <param name="address">The address to delete.</param>
+    /// <param name="expectedVersion">
+    /// The version the stored address must have; <see langword="null"/> to expect the version the address had when it
+    /// was loaded with <see cref="GetByIdAsync"/>.
+    /// </param>
     /// <param name="cancellationToken">The token to cancel the operation.</param>
-    /// <returns>A task that completes when the deletion is saved.</returns>
+    /// <returns>
+    /// <see cref="ChangeStatus.Success"/> if the deletion was saved; <see cref="ChangeStatus.NotFound"/> if the
+    /// address is not stored (anymore); <see cref="ChangeStatus.VersionMismatch"/> if its stored version differs.
+    /// </returns>
+    /// <remarks>
+    /// The version is checked when saving, so that a change in the meantime is detected, too. If nothing was saved,
+    /// the address is no longer tracked.
+    /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="address"/> is <see langword="null"/>.</exception>
-    Task DeleteAsync(Address address, CancellationToken cancellationToken);
+    Task<ChangeStatus> DeleteAsync(Address address, long? expectedVersion, CancellationToken cancellationToken);
 }
