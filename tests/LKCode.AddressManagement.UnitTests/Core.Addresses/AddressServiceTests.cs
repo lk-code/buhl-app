@@ -283,6 +283,136 @@ public class AddressServiceTests
         ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {id} was not found", id);
     }
 
+    [Test]
+    public async Task GetListAsync_CityAndPostalCode_PassesNormalizedFilters()
+    {
+        // Arrange
+        var query = new AddressListQuery("Köln", "51 147");
+
+        // Act
+        await _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).ListAsync("city:Köln", "postal:51 147", Arg.Any<CancellationToken>());
+    }
+
+    [TestCase("Köln", null, "city:Köln", null)]
+    [TestCase(null, "51147", null, "postal:51147")]
+    public async Task GetListAsync_SingleFilter_PassesOnlyThisFilterNormalized(
+        string? city,
+        string? postalCode,
+        string? expectedCity,
+        string? expectedPostalCode)
+    {
+        // Arrange
+        var query = new AddressListQuery(city, postalCode);
+
+        // Act
+        await _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1)
+            .ListAsync(expectedCity, expectedPostalCode, Arg.Any<CancellationToken>());
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase(" ")]
+    [TestCase("\t\n")]
+    public async Task GetListAsync_BlankFilters_PassesNullWithoutNormalizing(string? filter)
+    {
+        // Arrange
+        var query = new AddressListQuery(filter, filter);
+
+        // Act
+        await _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await _addressRepository.Received(1).ListAsync(null, null, Arg.Any<CancellationToken>());
+        _textNormalizer.DidNotReceiveWithAnyArgs().Normalize(default!);
+        _textNormalizer.DidNotReceiveWithAnyArgs().NormalizePostalCode(default!);
+    }
+
+    [Test]
+    public async Task GetListAsync_MatchingAddresses_ReturnsResponsesInRepositoryOrder()
+    {
+        // Arrange
+        Address first = CreateStoredAddress(AddressInput.Changed);
+        Address second = CreateStoredAddress(AddressInput.Valid);
+        _addressRepository.ListAsync(default, default, default).ReturnsForAnyArgs([first, second]);
+
+        // Act
+        IReadOnlyList<AddressResponse> responses =
+            await _service.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+
+        // Assert
+        responses.Should().Equal(first.ToResponse(), second.ToResponse());
+    }
+
+    [Test]
+    public async Task GetListAsync_NoMatches_ReturnsEmptyList()
+    {
+        // Arrange
+        _addressRepository.ListAsync(default, default, default).ReturnsForAnyArgs([]);
+
+        // Act
+        IReadOnlyList<AddressResponse> responses =
+            await _service.GetListAsync(new AddressListQuery("Köln", null), CancellationToken.None);
+
+        // Assert
+        responses.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task GetListAsync_AnyQuery_PassesCancellationToken()
+    {
+        // Arrange
+        var query = new AddressListQuery("Köln", "51147");
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _service.GetListAsync(query, cancellationTokenSource.Token);
+
+        // Assert
+        await _addressRepository.Received(1)
+            .ListAsync(Arg.Any<string?>(), Arg.Any<string?>(), cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task GetListAsync_MatchingAddresses_LogsCountAndNormalizedFilters()
+    {
+        // Arrange
+        Address first = CreateStoredAddress(AddressInput.Valid);
+        Address second = CreateStoredAddress(AddressInput.Valid);
+        _addressRepository.ListAsync(default, default, default).ReturnsForAnyArgs([first, second]);
+
+        // Act
+        await _service.GetListAsync(new AddressListQuery("Köln", "51147"), CancellationToken.None);
+
+        // Assert
+        FakeLogRecord record = ShouldHaveLoggedSingle(
+            LogLevel.Debug,
+            4,
+            "Listed 2 addresses for city city:Köln and postal code postal:51147");
+        record.GetStructuredStateValue("Count").Should().Be("2");
+        record.GetStructuredStateValue("NormalizedCity").Should().Be("city:Köln");
+        record.GetStructuredStateValue("NormalizedPostalCode").Should().Be("postal:51147");
+    }
+
+    [Test]
+    public async Task GetListAsync_NullQuery_ThrowsArgumentNullException()
+    {
+        // Arrange
+        AddressListQuery query = null!;
+
+        // Act
+        Func<Task> act = () => _service.GetListAsync(query, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("query");
+        await _addressRepository.DidNotReceiveWithAnyArgs().ListAsync(default, default, default);
+    }
+
     /// <summary>
     /// Creates an address with the given values and lets the repository return it for its id. Unknown ids return
     /// <see langword="null"/>.
@@ -315,12 +445,17 @@ public class AddressServiceTests
             .Which.GetArguments()[0].Should().BeOfType<Address>()
             .Subject;
 
-    private void ShouldHaveLoggedSingle(LogLevel level, int eventId, string message, Guid addressId)
+    private void ShouldHaveLoggedSingle(LogLevel level, int eventId, string message, Guid addressId) =>
+        ShouldHaveLoggedSingle(level, eventId, message)
+            .GetStructuredStateValue("AddressId").Should().Be(addressId.ToString());
+
+    private FakeLogRecord ShouldHaveLoggedSingle(LogLevel level, int eventId, string message)
     {
         FakeLogRecord record = _logger.Collector.GetSnapshot().Should().ContainSingle().Which;
         record.Level.Should().Be(level);
         record.Id.Id.Should().Be(eventId);
         record.Message.Should().Be(message);
-        record.GetStructuredStateValue("AddressId").Should().Be(addressId.ToString());
+
+        return record;
     }
 }
