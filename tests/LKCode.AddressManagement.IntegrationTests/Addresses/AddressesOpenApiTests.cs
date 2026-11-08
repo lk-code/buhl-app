@@ -428,6 +428,25 @@ public class AddressesOpenApiTests
             "country");
     }
 
+    [TestCase("CreateAddressRequest")]
+    [TestCase("UpdateAddressRequest")]
+    public void AddressRequestSchema_Properties_AreExactlyTheValuesOfAnAddress(string schemaName)
+    {
+        // Act
+        JsonElement schema = GetSchema(schemaName);
+
+        // Assert
+        GetNames(schema.GetProperty("properties")).Should().BeEquivalentTo(
+            "firstName",
+            "lastName",
+            "street",
+            "houseNumber",
+            "postalCode",
+            "city",
+            "country",
+            "email");
+    }
+
     [Test]
     public void AddressResponseSchema_Required_AreAllValues()
     {
