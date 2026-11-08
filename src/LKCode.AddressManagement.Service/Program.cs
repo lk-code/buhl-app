@@ -79,6 +79,8 @@ builder.Services.AddOpenApi(options =>
     options.AddSchemaTransformer<AddressPatchDocumentSchemaTransformer>();
     options.AddSchemaTransformer<ProblemDetailsSchemaTransformer>();
     options.AddOperationTransformer<LocationHeaderOperationTransformer>();
+    options.AddOperationTransformer<ETagHeaderOperationTransformer>();
+    options.AddOperationTransformer<IfMatchHeaderOperationTransformer>();
 });
 
 WebApplication app = builder.Build();

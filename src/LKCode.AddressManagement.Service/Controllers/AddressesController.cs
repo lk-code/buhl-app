@@ -252,7 +252,13 @@ public sealed class AddressesController(
         MediaTypeNames.Application.ProblemJson)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status412PreconditionFailed,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
         StatusCodes.Status415UnsupportedMediaType,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status428PreconditionRequired,
         MediaTypeNames.Application.ProblemJson)]
     public async Task<ActionResult<AddressResponse>> UpdateAsync(
         Guid id,
@@ -337,7 +343,13 @@ public sealed class AddressesController(
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, MediaTypeNames.Application.ProblemJson)]
     [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status412PreconditionFailed,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
         StatusCodes.Status415UnsupportedMediaType,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status428PreconditionRequired,
         MediaTypeNames.Application.ProblemJson)]
     public async Task<ActionResult<AddressResponse>> PatchAsync(
         Guid id,
@@ -418,7 +430,16 @@ public sealed class AddressesController(
     /// <response code="500">An unexpected error occurred.</response>
     [HttpDelete("{id:guid}", Name = DeleteRouteName)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType<ValidationProblemDetails>(
+        StatusCodes.Status400BadRequest,
+        MediaTypeNames.Application.ProblemJson)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status412PreconditionFailed,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status428PreconditionRequired,
+        MediaTypeNames.Application.ProblemJson)]
     public async Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
         AddressResponse? address = await _addressService.GetByIdAsync(id, cancellationToken);
