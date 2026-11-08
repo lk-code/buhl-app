@@ -96,7 +96,7 @@ public class AddressSchemaTransformerTests
         await _transformer.TransformAsync(schema, CreateContext(typeof(AddressResponse)), CancellationToken.None);
 
         // Assert
-        schema.Required.Should().BeEquivalentTo([.. _requestValues, "id", "createdAt", "updatedAt"]);
+        schema.Required.Should().BeEquivalentTo([.. _requestValues, "id", "createdAt", "updatedAt", "version"]);
     }
 
     [TestCaseSource(nameof(RequiredValuesOfAllTypes))]

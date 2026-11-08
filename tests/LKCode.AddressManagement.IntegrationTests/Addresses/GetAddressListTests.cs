@@ -94,7 +94,8 @@ public class GetAddressListTests
                 "country",
                 "email",
                 "createdAt",
-                "updatedAt");
+                "updatedAt",
+                "version");
     }
 
     [TestCase("Solingen")]

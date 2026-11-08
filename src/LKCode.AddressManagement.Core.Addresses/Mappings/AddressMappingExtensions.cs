@@ -30,7 +30,8 @@ public static class AddressMappingExtensions
             address.Country,
             address.Email,
             address.CreatedAt,
-            address.UpdatedAt);
+            address.UpdatedAt,
+            Version: 0);
     }
 
     /// <summary>

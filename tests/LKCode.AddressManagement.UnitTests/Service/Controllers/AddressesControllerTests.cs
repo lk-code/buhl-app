@@ -32,7 +32,8 @@ public class AddressesControllerTests
         "DE",
         "erika.mustermann@example.com",
         _createdAt,
-        _createdAt);
+        _createdAt,
+        1);
 
     private static readonly CreateAddressRequest _validRequest = new(
         "Erika",

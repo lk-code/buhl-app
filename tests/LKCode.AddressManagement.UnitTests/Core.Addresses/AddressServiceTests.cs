@@ -471,7 +471,8 @@ public class AddressServiceTests
             "GB",
             "max.musterfrau@example.org",
             _startTime,
-            _startTime.AddHours(2)));
+            _startTime.AddHours(2),
+            2));
     }
 
     [Test]

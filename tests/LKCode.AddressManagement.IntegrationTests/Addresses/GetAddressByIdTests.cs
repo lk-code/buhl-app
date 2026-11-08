@@ -66,7 +66,8 @@ public class GetAddressByIdTests
             "country",
             "email",
             "createdAt",
-            "updatedAt");
+            "updatedAt",
+            "version");
     }
 
     [Test]

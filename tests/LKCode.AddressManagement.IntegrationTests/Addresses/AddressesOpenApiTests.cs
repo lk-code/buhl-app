@@ -585,7 +585,7 @@ public class AddressesOpenApiTests
         // Assert
         schema.GetProperty("required").EnumerateArray().Select(name => name.GetString()).Should().BeEquivalentTo(
             GetNames(schema.GetProperty("properties")));
-        GetNames(schema.GetProperty("properties")).Should().HaveCount(11);
+        GetNames(schema.GetProperty("properties")).Should().HaveCount(12);
     }
 
     [TestCaseSource(nameof(RequiredValuesOfSchemas))]
