@@ -1,5 +1,7 @@
+using System.Linq.Expressions;
 using FluentValidation;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
+using LKCode.AddressManagement.Domain.Addresses;
 
 namespace LKCode.AddressManagement.Core.Addresses.Validators;
 
@@ -19,5 +21,24 @@ public abstract class AddressRequestValidator<TRequest> : AbstractValidator<TReq
     /// </summary>
     protected AddressRequestValidator()
     {
+        RuleLevelCascadeMode = CascadeMode.Stop;
+
+        RuleForRequiredText(request => request.FirstName, AddressConstraints.FirstNameMaxLength);
+        RuleForRequiredText(request => request.LastName, AddressConstraints.LastNameMaxLength);
+        RuleForRequiredText(request => request.Street, AddressConstraints.StreetMaxLength);
+        RuleForRequiredText(request => request.HouseNumber, AddressConstraints.HouseNumberMaxLength);
+        RuleForRequiredText(request => request.PostalCode, AddressConstraints.PostalCodeMaxLength);
+        RuleForRequiredText(request => request.City, AddressConstraints.CityMaxLength);
+        RuleForRequiredText(request => request.Country, AddressConstraints.CountryMaxLength);
+
+        RuleFor(request => request.Email)
+            .MaximumLength(AddressConstraints.EmailMaxLength);
     }
+
+    private IRuleBuilderOptions<TRequest, string> RuleForRequiredText(
+        Expression<Func<TRequest, string>> value,
+        int maxLength) =>
+        RuleFor(value)
+            .NotEmpty()
+            .MaximumLength(maxLength);
 }
