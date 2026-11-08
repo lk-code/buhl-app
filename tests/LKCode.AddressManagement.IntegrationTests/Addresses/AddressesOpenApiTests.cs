@@ -312,6 +312,166 @@ public class AddressesOpenApiTests
     }
 
     [Test]
+    public void PatchOperation_OperationId_IsPatchAddress()
+    {
+        // Act
+        JsonElement operation = GetPatchOperation();
+
+        // Assert
+        operation.GetProperty("operationId").GetString().Should().Be("PatchAddress");
+    }
+
+    [Test]
+    public void PatchOperation_Responses_ContainAllStatusCodes()
+    {
+        // Act
+        JsonElement responses = GetPatchOperation().GetProperty("responses");
+
+        // Assert
+        GetNames(responses).Should().BeEquivalentTo("200", "400", "404", "409", "415", "500");
+    }
+
+    [TestCase("200", JsonMediaType, "AddressResponse")]
+    [TestCase("400", ProblemDetailsMediaType, "ValidationProblemDetails")]
+    [TestCase("404", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("409", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("415", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("500", ProblemDetailsMediaType, "ProblemDetails")]
+    public void PatchOperation_Response_HasOnlyMediaTypeWithSchema(string statusCode, string mediaType, string schema)
+    {
+        // Act
+        JsonElement response = GetPatchOperation().GetProperty("responses").GetProperty(statusCode);
+
+        // Assert
+        response.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        JsonElement content = response.GetProperty("content");
+        GetNames(content).Should().Equal(mediaType);
+        GetSchemaReference(content.GetProperty(mediaType)).Should().Be(SchemaReferencePrefix + schema);
+    }
+
+    [TestCase("200")]
+    [TestCase("400")]
+    [TestCase("404")]
+    [TestCase("409")]
+    [TestCase("415")]
+    [TestCase("500")]
+    public void PatchOperation_Response_HasNoHeaders(string statusCode)
+    {
+        // Act
+        JsonElement response = GetPatchOperation().GetProperty("responses").GetProperty(statusCode);
+
+        // Assert
+        response.TryGetProperty("headers", out _).Should().BeFalse();
+    }
+
+    [Test]
+    public void PatchOperation_RequestBody_IsRequiredJsonPatchDocument()
+    {
+        // Act
+        JsonElement requestBody = GetPatchOperation().GetProperty("requestBody");
+
+        // Assert
+        requestBody.GetProperty("required").GetBoolean().Should().BeTrue();
+        requestBody.GetProperty("description").GetString()
+            .Should().Be("The operations to apply to the values of the address.");
+        JsonElement content = requestBody.GetProperty("content");
+        GetNames(content).Should().Equal("application/json-patch+json");
+        GetSchemaReference(content.GetProperty("application/json-patch+json"))
+            .Should().Be(SchemaReferencePrefix + "JsonPatchDocument");
+    }
+
+    [Test]
+    public void PatchOperation_IdParameter_IsRequiredUuidInPath()
+    {
+        // Act
+        JsonElement parameters = GetPatchOperation().GetProperty("parameters");
+
+        // Assert
+        AssertIsIdParameter(parameters);
+    }
+
+    [Test]
+    public void JsonPatchDocumentSchema_Document_IsDescribedArrayOfOperations()
+    {
+        // Act
+        JsonElement schema = GetSchema("JsonPatchDocument");
+
+        // Assert
+        GetTypes(schema).Should().Equal("array");
+        schema.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        JsonElement items = schema.GetProperty("items");
+        items.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        items.GetProperty("oneOf").GetArrayLength().Should().Be(3);
+    }
+
+    [TestCase(0, new[] { "add", "replace", "test" }, new[] { "op", "path", "value" })]
+    [TestCase(1, new[] { "move", "copy" }, new[] { "op", "path", "from" })]
+    [TestCase(2, new[] { "remove" }, new[] { "op", "path" })]
+    public void JsonPatchDocumentSchema_Operation_HasOperationsAndOnlyRequiredMembers(
+        int index,
+        string[] operations,
+        string[] members)
+    {
+        // Act
+        JsonElement operation = GetPatchOperationSchema(index);
+
+        // Assert
+        GetTypes(operation).Should().Equal("object");
+        operation.GetProperty("additionalProperties").GetBoolean().Should().BeFalse();
+        GetNames(operation.GetProperty("properties")).Should().BeEquivalentTo(members);
+        operation.GetProperty("required").EnumerateArray().Select(member => member.GetString())
+            .Should().BeEquivalentTo(members);
+        JsonElement op = operation.GetProperty("properties").GetProperty("op");
+        GetTypes(op).Should().Equal("string");
+        op.GetProperty("enum").EnumerateArray().Select(value => value.GetString()).Should().Equal(operations);
+    }
+
+    [TestCase(0, "path")]
+    [TestCase(1, "path")]
+    [TestCase(1, "from")]
+    [TestCase(2, "path")]
+    public void JsonPatchDocumentSchema_PathAndFrom_AreEnumOfAllFieldsOfAnAddress(int index, string member)
+    {
+        // Act
+        JsonElement pointer = GetPatchOperationSchema(index).GetProperty("properties").GetProperty(member);
+
+        // Assert
+        GetTypes(pointer).Should().Equal("string");
+        pointer.GetProperty("enum").EnumerateArray().Select(value => value.GetString()).Should().Equal(
+            "/firstName",
+            "/lastName",
+            "/street",
+            "/houseNumber",
+            "/postalCode",
+            "/city",
+            "/country",
+            "/email");
+    }
+
+    [Test]
+    public void JsonPatchDocumentSchema_Value_IsNullableString()
+    {
+        // Act
+        JsonElement value = GetPatchOperationSchema(0).GetProperty("properties").GetProperty("value");
+
+        // Assert
+        GetTypes(value).Should().BeEquivalentTo("string", "null");
+    }
+
+    [TestCase(0)]
+    [TestCase(1)]
+    [TestCase(2)]
+    public void JsonPatchDocumentSchema_Members_HaveDescription(int index)
+    {
+        // Act
+        JsonElement properties = GetPatchOperationSchema(index).GetProperty("properties");
+
+        // Assert
+        properties.EnumerateObject().Should().AllSatisfy(member =>
+            member.Value.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace());
+    }
+
+    [Test]
     public void DeleteOperation_OperationId_IsDeleteAddress()
     {
         // Act
@@ -538,6 +698,12 @@ public class AddressesOpenApiTests
 
     private JsonElement GetPutOperation() =>
         _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("put");
+
+    private JsonElement GetPatchOperation() =>
+        _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("patch");
+
+    private JsonElement GetPatchOperationSchema(int index) =>
+        GetSchema("JsonPatchDocument").GetProperty("items").GetProperty("oneOf")[index];
 
     private JsonElement GetDeleteOperation() =>
         _document.GetProperty("paths").GetProperty("/api/addresses/{id}").GetProperty("delete");
