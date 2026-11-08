@@ -242,7 +242,9 @@ public class ServiceCollectionExtensionsTests
         var services = new ServiceCollection();
         services.AddData(CreateConfiguration(databaseName));
 
-        return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true });
+        var providerOptions = new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = true };
+
+        return services.BuildServiceProvider(providerOptions);
     }
 
     private static Address CreateAddress()
