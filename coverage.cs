@@ -1,8 +1,11 @@
-// Runs all tests with code coverage, creates an HTML report in coverage/report/
+// Runs all tests with code coverage, creates an HTML report and a GitHub Markdown summary in coverage/report/
 // and prints the total line coverage and the line coverage per project.
 // Test projects and Program.cs are excluded from the coverage.
 //
-// Usage: dotnet run coverage.cs
+// Usage: dotnet run coverage.cs [-- [--no-build] [--threshold <percent>]]
+//   --no-build             skips the build; the solution must already be built
+//   --threshold <percent>  fails with exit code 1 if the total line coverage is below the given percentage;
+//                          the check is skipped as long as there are no coverable lines
 
 using System.Diagnostics;
 using System.Globalization;
@@ -10,6 +13,30 @@ using System.Text.Json;
 
 const string ProjectPrefix = "LKCode.AddressManagement.";
 const string NotAvailable = "n/a (no coverable lines)";
+const string Usage = "Usage: dotnet run coverage.cs [-- [--no-build] [--threshold <percent>]]";
+
+bool build = true;
+decimal? threshold = null;
+for (int index = 0; index < args.Length; index++)
+{
+    switch (args[index])
+    {
+        case "--no-build":
+            build = false;
+            break;
+        case "--threshold":
+            index++;
+            if (index >= args.Length || !TryParsePercentage(args[index], out decimal minimum))
+            {
+                return WriteUsageError("--threshold expects a percentage between 0 and 100.");
+            }
+
+            threshold = minimum;
+            break;
+        default:
+            return WriteUsageError($"Unknown argument: {args[index]}");
+    }
+}
 
 string root = AppContext.GetData("EntryPointFileDirectoryPath") as string ?? Directory.GetCurrentDirectory();
 string coverageDirectory = Path.Combine(root, "coverage");
@@ -27,10 +54,13 @@ if (exitCode != 0)
     return exitCode;
 }
 
-exitCode = await RunDotnetAsync(root, "build", "AddressManagement.slnx");
-if (exitCode != 0)
+if (build)
 {
-    return exitCode;
+    exitCode = await RunDotnetAsync(root, "build", "AddressManagement.slnx");
+    if (exitCode != 0)
+    {
+        return exitCode;
+    }
 }
 
 // Each test project writes into its own results directory, so the reports do not overwrite each other.
@@ -66,7 +96,7 @@ string[] reports = Directory.Exists(resultsDirectory)
 if (reports.Length == 0)
 {
     Console.WriteLine("No coverage data found.");
-    return 0;
+    return CheckThreshold(threshold, coveredLines: 0, coverableLines: 0);
 }
 
 // ReportGenerator merges the reports of all test projects.
@@ -77,7 +107,7 @@ exitCode = await RunDotnetAsync(
     "reportgenerator",
     $"-reports:{string.Join(';', reports)}",
     $"-targetdir:{reportDirectory}",
-    "-reporttypes:Html;JsonSummary",
+    "-reporttypes:Html;JsonSummary;MarkdownSummaryGithub",
     "-verbosity:Warning");
 if (exitCode != 0)
 {
@@ -92,9 +122,11 @@ var assemblies = summary.RootElement
     .EnumerateArray()
     .ToDictionary(assembly => assembly.GetProperty("name").GetString() ?? string.Empty, StringComparer.Ordinal);
 
+JsonElement total = summary.RootElement.GetProperty("summary");
+
 Console.WriteLine();
 Console.WriteLine("Line coverage");
-WriteCoverage("Total", FormatCoverage(summary.RootElement.GetProperty("summary")));
+WriteCoverage("Total", FormatCoverage(total));
 
 foreach (string projectDirectory in Directory.GetDirectories(Path.Combine(root, "src")).Order(StringComparer.Ordinal))
 {
@@ -107,9 +139,53 @@ foreach (string projectDirectory in Directory.GetDirectories(Path.Combine(root, 
         assemblies.TryGetValue(assemblyName, out JsonElement assembly) ? FormatCoverage(assembly) : NotAvailable);
 }
 
+exitCode = CheckThreshold(
+    threshold,
+    total.GetProperty("coveredlines").GetInt32(),
+    total.GetProperty("coverablelines").GetInt32());
+
 Console.WriteLine();
 Console.WriteLine($"HTML report: {Path.Combine(reportDirectory, "index.html")}");
-return 0;
+return exitCode;
+
+static bool TryParsePercentage(string text, out decimal percentage)
+{
+    return decimal.TryParse(text, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out percentage)
+        && percentage <= 100;
+}
+
+static int WriteUsageError(string message)
+{
+    Console.Error.WriteLine(message);
+    Console.Error.WriteLine(Usage);
+    return 1;
+}
+
+// Compares the exact coverage, not the rounded value that is shown in the console.
+static int CheckThreshold(decimal? threshold, int coveredLines, int coverableLines)
+{
+    if (threshold is not decimal minimum)
+    {
+        return 0;
+    }
+
+    string formattedMinimum = minimum.ToString("0.##", CultureInfo.InvariantCulture);
+    Console.WriteLine();
+    if (coverableLines == 0)
+    {
+        Console.WriteLine($"Minimum line coverage {formattedMinimum} %: skipped (no coverable lines)");
+        return 0;
+    }
+
+    if (100m * coveredLines / coverableLines < minimum)
+    {
+        Console.Error.WriteLine($"Minimum line coverage {formattedMinimum} %: FAILED");
+        return 1;
+    }
+
+    Console.WriteLine($"Minimum line coverage {formattedMinimum} %: OK");
+    return 0;
+}
 
 static async Task<int> RunDotnetAsync(string workingDirectory, params string[] arguments)
 {
