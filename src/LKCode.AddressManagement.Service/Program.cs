@@ -43,8 +43,11 @@ builder.Services
     .AddCoreAddresses()
     .AddData(builder.Configuration);
 
-// System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used.
-builder.Services.AddControllers();
+// System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used. MVC does not treat
+// non-nullable properties as implicitly required: requests are sanitized and then validated completely by
+// FluentValidation, so that all field errors are reported together and blank values are trimmed first.
+builder.Services.AddControllers(options =>
+    options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
 builder.Services.AddOpenApi();
