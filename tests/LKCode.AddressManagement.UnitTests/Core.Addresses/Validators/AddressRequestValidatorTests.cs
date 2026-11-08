@@ -88,6 +88,51 @@ public abstract class AddressRequestValidatorTests<TRequest>
         ShouldHaveSingleErrorFor(result, field);
     }
 
+    [TestCase("DE")]
+    [TestCase("AT")]
+    [TestCase("CH")]
+    [TestCase("GB")]
+    [TestCase("US")]
+    [TestCase("AD")]
+    [TestCase("ZW")]
+    public void Validate_AssignedCountry_ReturnsNoErrors(string country)
+    {
+        // Arrange
+        TRequest request = CreateRequest(AddressInput.Valid with { Country = country });
+
+        // Act
+        ValidationResult result = _validator.Validate(request);
+
+        // Assert
+        result.Errors.Should().BeEmpty();
+    }
+
+    [TestCase("GER")]
+    [TestCase("D")]
+    [TestCase("de1")]
+    [TestCase("XX")]
+    [TestCase("de")]
+    [TestCase("De")]
+    [TestCase("D1")]
+    [TestCase("1A")]
+    [TestCase("D-")]
+    [TestCase("ÄÖ")]
+    [TestCase("UK")]
+    [TestCase("EU")]
+    [TestCase("XK")]
+    [TestCase("ZZ")]
+    public void Validate_InvalidCountry_ReturnsSingleErrorForCountry(string country)
+    {
+        // Arrange
+        TRequest request = CreateRequest(AddressInput.Valid with { Country = country });
+
+        // Act
+        ValidationResult result = _validator.Validate(request);
+
+        // Assert
+        result.Errors.Should().ContainSingle().Which.PropertyName.Should().Be("Country");
+    }
+
     [Test]
     public void Validate_AllValuesInvalid_ReturnsOneErrorForEachValue()
     {
