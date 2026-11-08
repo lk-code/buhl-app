@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi;
 
 namespace LKCode.AddressManagement.Service.OpenApiTransformers;
@@ -17,6 +18,11 @@ namespace LKCode.AddressManagement.Service.OpenApiTransformers;
 public sealed class AgeHeaderOperationTransformer : IOpenApiOperationTransformer
 {
     /// <summary>
+    /// The only status code of responses that the output cache stores.
+    /// </summary>
+    private const string OkStatusCode = "200";
+
+    /// <summary>
     /// Adds the optional <c>Age</c> header to the <c>200 OK</c> response of the <paramref name="operation"/> if its
     /// endpoint is cached.
     /// </summary>
@@ -30,6 +36,23 @@ public sealed class AgeHeaderOperationTransformer : IOpenApiOperationTransformer
     public Task TransformAsync(
         OpenApiOperation operation,
         OpenApiOperationTransformerContext context,
-        CancellationToken cancellationToken) =>
-        throw new NotImplementedException();
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(context);
+
+        bool isCached = context.Description.ActionDescriptor.EndpointMetadata.OfType<OutputCacheAttribute>().Any();
+        if (isCached && operation.Responses?.GetValueOrDefault(OkStatusCode) is OpenApiResponse response)
+        {
+            response.Headers ??= new Dictionary<string, IOpenApiHeader>();
+            response.Headers[HeaderNames.Age] = new OpenApiHeader
+            {
+                Description = "Only in responses from the server-side cache: the seconds since the response was "
+                    + "cached (RFC 9111, section 5.1).",
+                Schema = new OpenApiSchema { Type = JsonSchemaType.Integer, Format = "int64", Minimum = "0" },
+            };
+        }
+
+        return Task.CompletedTask;
+    }
 }

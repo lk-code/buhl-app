@@ -83,6 +83,7 @@ builder.Services.AddOpenApi(options =>
     options.AddSchemaTransformer<ProblemDetailsSchemaTransformer>();
     options.AddOperationTransformer<LocationHeaderOperationTransformer>();
     options.AddOperationTransformer<ETagHeaderOperationTransformer>();
+    options.AddOperationTransformer<AgeHeaderOperationTransformer>();
     options.AddOperationTransformer<IfMatchHeaderOperationTransformer>();
     options.AddOperationTransformer<AddressListParametersOperationTransformer>();
 });

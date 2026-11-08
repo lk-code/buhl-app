@@ -104,6 +104,11 @@ public sealed class AddressesController(
     /// The `ETag` header contains the strong entity tag of the current version of the address, e.g. `"3"`; a change
     /// requires it in its `If-Match` header. An unknown id and an id that is no GUID both result in `404 Not Found`,
     /// like an unknown route. It is not possible to tell whether an address with the id has ever existed.
+    ///
+    /// The response can come from the server-side cache; then the `Age` header contains the seconds since it was
+    /// cached. Every change and the deletion of the address remove it from the cache, so they take effect
+    /// immediately. The headers `If-None-Match` and `If-Modified-Since` are not evaluated: such a request always gets
+    /// the current address with `200 OK`, never `304 Not Modified`.
     /// </remarks>
     /// <response code="200">The address; the `ETag` header contains its version.</response>
     /// <response code="404">There is no address with the id.</response>
@@ -163,6 +168,12 @@ public sealed class AddressesController(
     /// A page below 1, a page size outside 1 to 100, a value that is no integer, and an unknown sort field or
     /// direction result in `400 Bad Request` with all errors together, keyed by the name of the parameter, e.g.
     /// `pageSize`.
+    ///
+    /// The response can come from the server-side cache, separately for every combination of query parameters; then
+    /// the `Age` header contains the seconds since it was cached. Every creation, change and deletion of an address
+    /// removes all pages from the cache, so they take effect immediately. The headers `If-None-Match` and
+    /// `If-Modified-Since` are not evaluated: such a request always gets the current page with `200 OK`, never
+    /// `304 Not Modified`.
     /// </remarks>
     /// <response code="200">
     /// The page of the matching addresses; `items` is empty if none matches or the page is behind the end.
