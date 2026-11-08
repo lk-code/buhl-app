@@ -3,6 +3,7 @@ using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
+using LKCode.AddressManagement.Service.OpenApiTransformers;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Scalar.AspNetCore;
 using Serilog;
@@ -53,7 +54,7 @@ builder.Services
     .AddJsonOptions(options => options.AllowInputFormatterExceptionMessages = false);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
-builder.Services.AddOpenApi();
+builder.Services.AddOpenApi(options => options.AddOperationTransformer<LocationHeaderOperationTransformer>());
 
 WebApplication app = builder.Build();
 
