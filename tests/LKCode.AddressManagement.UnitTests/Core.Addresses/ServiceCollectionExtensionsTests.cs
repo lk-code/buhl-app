@@ -47,6 +47,23 @@ public class ServiceCollectionExtensionsTests
     }
 
     [Test]
+    public void AddCoreAddresses_Called_RegistersAddressListQueryValidatorAsSingleton()
+    {
+        // Arrange
+        var services = new ServiceCollection();
+
+        // Act
+        services.AddCoreAddresses();
+
+        // Assert
+        services.Should().ContainSingle(descriptor =>
+                descriptor.ServiceType == typeof(IValidator<AddressListQuery>))
+            .Which.Should().Match<ServiceDescriptor>(descriptor =>
+                descriptor.ImplementationType == typeof(AddressListQueryValidator)
+                && descriptor.Lifetime == ServiceLifetime.Singleton);
+    }
+
+    [Test]
     public void AddCoreAddresses_Called_RegistersAddressServiceAsScoped()
     {
         // Arrange
@@ -87,10 +104,13 @@ public class ServiceCollectionExtensionsTests
             provider.GetRequiredService<IValidator<CreateAddressRequest>>();
         IValidator<UpdateAddressRequest> updateValidator =
             provider.GetRequiredService<IValidator<UpdateAddressRequest>>();
+        IValidator<AddressListQuery> listQueryValidator =
+            provider.GetRequiredService<IValidator<AddressListQuery>>();
 
         // Assert
         createValidator.Should().BeOfType<CreateAddressRequestValidator>();
         updateValidator.Should().BeOfType<UpdateAddressRequestValidator>();
+        listQueryValidator.Should().BeOfType<AddressListQueryValidator>();
     }
 
     [Test]
@@ -121,6 +141,8 @@ public class ServiceCollectionExtensionsTests
             descriptor.ServiceType == typeof(IValidator<CreateAddressRequest>));
         services.Should().ContainSingle(descriptor =>
             descriptor.ServiceType == typeof(IValidator<UpdateAddressRequest>));
+        services.Should().ContainSingle(descriptor =>
+            descriptor.ServiceType == typeof(IValidator<AddressListQuery>));
     }
 
     [Test]
