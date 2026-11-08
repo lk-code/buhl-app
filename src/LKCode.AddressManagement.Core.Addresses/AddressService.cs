@@ -107,9 +107,19 @@ public sealed partial class AddressService(
     }
 
     /// <inheritdoc />
-    public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        Address? address = await _addressRepository.GetByIdAsync(id, cancellationToken);
+        if (address is null)
+        {
+            LogAddressNotFound(_logger, id);
+            return false;
+        }
+
+        await _addressRepository.DeleteAsync(address, cancellationToken);
+        LogAddressDeleted(_logger, id);
+
+        return true;
     }
 
     [LoggerMessage(EventId = 1, Level = LogLevel.Information, Message = "Created address {AddressId}")]
@@ -133,4 +143,7 @@ public sealed partial class AddressService(
 
     [LoggerMessage(EventId = 5, Level = LogLevel.Information, Message = "Updated address {AddressId}")]
     private static partial void LogAddressUpdated(ILogger logger, Guid addressId);
+
+    [LoggerMessage(EventId = 6, Level = LogLevel.Information, Message = "Deleted address {AddressId}")]
+    private static partial void LogAddressDeleted(ILogger logger, Guid addressId);
 }
