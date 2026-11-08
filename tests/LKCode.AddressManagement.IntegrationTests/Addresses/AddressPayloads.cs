@@ -22,6 +22,19 @@ public static class AddressPayloads
         "erika.mustermann@example.com");
 
     /// <summary>
+    /// Gets new values for an address created from <see cref="ValidRequest"/>; every value differs.
+    /// </summary>
+    public static UpdateAddressRequest UpdatedRequest { get; } = new(
+        "Max",
+        "Musterfrau",
+        "Hauptstraße",
+        "1a",
+        "10115",
+        "Berlin",
+        "AT",
+        "max.musterfrau@example.org");
+
+    /// <summary>
     /// Gets all fields of the JSON body with their values at and above the maximum length.
     /// </summary>
     public static IReadOnlyList<AddressPayloadField> Fields { get; } =
@@ -55,6 +68,21 @@ public static class AddressPayloads
         ["city"] = ValidRequest.City,
         ["country"] = ValidRequest.Country,
         ["email"] = ValidRequest.Email,
+    };
+
+    /// <summary>
+    /// Creates a new JSON body of <see cref="UpdatedRequest"/>, which a test may change.
+    /// </summary>
+    public static JsonObject Updated() => new()
+    {
+        ["firstName"] = UpdatedRequest.FirstName,
+        ["lastName"] = UpdatedRequest.LastName,
+        ["street"] = UpdatedRequest.Street,
+        ["houseNumber"] = UpdatedRequest.HouseNumber,
+        ["postalCode"] = UpdatedRequest.PostalCode,
+        ["city"] = UpdatedRequest.City,
+        ["country"] = UpdatedRequest.Country,
+        ["email"] = UpdatedRequest.Email,
     };
 
     /// <summary>

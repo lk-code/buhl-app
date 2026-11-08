@@ -12,10 +12,11 @@ using Microsoft.Extensions.Options;
 namespace LKCode.AddressManagement.Service.Controllers;
 
 /// <summary>
-/// The endpoints to create, read, list and delete addresses.
+/// The endpoints to create, read, list, change and delete addresses.
 /// </summary>
 /// <param name="addressService">The service that reads and stores the addresses.</param>
 /// <param name="createAddressValidator">The validator of the requests to create an address.</param>
+/// <param name="updateAddressValidator">The validator of the requests to change an address.</param>
 /// <param name="jsonOptions">
 /// The JSON options of the controllers; their naming policy converts the property names of validation errors.
 /// </param>
@@ -32,6 +33,7 @@ namespace LKCode.AddressManagement.Service.Controllers;
 public sealed class AddressesController(
     IAddressService addressService,
     IValidator<CreateAddressRequest> createAddressValidator,
+    IValidator<UpdateAddressRequest> updateAddressValidator,
     IOptions<JsonOptions> jsonOptions) : ControllerBase
 {
     private const string GetByIdRouteName = "GetAddressById";
@@ -43,6 +45,9 @@ public sealed class AddressesController(
 
     private readonly IValidator<CreateAddressRequest> _createAddressValidator =
         createAddressValidator ?? throw new ArgumentNullException(nameof(createAddressValidator));
+
+    private readonly IValidator<UpdateAddressRequest> _updateAddressValidator =
+        updateAddressValidator ?? throw new ArgumentNullException(nameof(updateAddressValidator));
 
     private readonly JsonNamingPolicy? _jsonNamingPolicy =
         (jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions)))
@@ -101,9 +106,9 @@ public sealed class AddressesController(
         return Ok(addresses);
     }
 
-    // The parameter "request" is documented last: the OpenAPI XML comment generator of .NET 10 writes the
-    // description of every parameter that is no operation parameter, including the cancellation token, to the
-    // request body, so the last one wins.
+    // In the actions with a request body (create and update), the parameter "request" is documented last: the
+    // OpenAPI XML comment generator of .NET 10 writes the description of every parameter that is no operation
+    // parameter, including the cancellation token, to the request body, so the last one wins.
 
     /// <summary>
     /// Creates a new address.
@@ -153,6 +158,36 @@ public sealed class AddressesController(
 
         return CreatedAtRoute(GetByIdRouteName, new { id = address.Id }, address);
     }
+
+    /// <summary>
+    /// Replaces all values of the address with the given id.
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <param name="request">The new values of the address.</param>
+    /// <returns>
+    /// <c>200 OK</c> with the changed address, <c>400 Bad Request</c> with all validation errors, or
+    /// <c>404 Not Found</c> if there is no address with the id.
+    /// </returns>
+    /// <remarks>
+    /// All values are replaced; a missing or blank email address removes the existing one. Before the validation, all
+    /// values are trimmed, the country is converted to uppercase and a blank email address is treated as missing. All
+    /// validation errors are returned together, keyed by the name of the field, e.g. `firstName`. Errors in the JSON
+    /// itself are keyed by their JSON path, e.g. `$.firstName`. The body is checked before the id: an invalid body
+    /// results in `400 Bad Request` even if there is no address with the id. An unknown id and an id that is no GUID
+    /// both result in `404 Not Found`, like an unknown route.
+    /// </remarks>
+    /// <response code="200">The address was changed.</response>
+    /// <response code="400">The body is no valid JSON object of an address or contains invalid values.</response>
+    /// <response code="404">There is no address with the id.</response>
+    /// <response code="415">The body is not JSON.</response>
+    /// <response code="500">An unexpected error occurred.</response>
+    /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
+    [HttpPut("{id:guid}")]
+    public Task<ActionResult<AddressResponse>> UpdateAsync(
+        Guid id,
+        UpdateAddressRequest request,
+        CancellationToken cancellationToken) => throw new NotImplementedException();
 
     /// <summary>
     /// Deletes the address with the given id.
