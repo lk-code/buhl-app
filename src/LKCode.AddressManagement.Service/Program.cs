@@ -54,7 +54,11 @@ builder.Services
     .AddJsonOptions(options => options.AllowInputFormatterExceptionMessages = false);
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
-builder.Services.AddOpenApi(options => options.AddOperationTransformer<LocationHeaderOperationTransformer>());
+builder.Services.AddOpenApi(options =>
+{
+    options.AddSchemaTransformer<AddressSchemaTransformer>();
+    options.AddOperationTransformer<LocationHeaderOperationTransformer>();
+});
 
 WebApplication app = builder.Build();
 
