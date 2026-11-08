@@ -1,3 +1,4 @@
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 
@@ -43,6 +44,29 @@ public interface IAddressRepository
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// Loads one page of the sorted addresses whose normalized city and normalized postal code contain the filters
+    /// of the <paramref name="criteria"/>, and counts all of them.
+    /// </summary>
+    /// <param name="criteria">The filters, the sort order and the page.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>
+    /// The addresses on the page and the number of all matching addresses. The page is empty if it is behind the
+    /// end.
+    /// </returns>
+    /// <remarks>
+    /// The filter values must already be normalized like <see cref="Address.NormalizedCity"/> and
+    /// <see cref="Address.NormalizedPostalCode"/>; both filters must match. Addresses with the same value of the sort
+    /// field are sorted by their id in the same direction, so that the order is stable. Deleted addresses are neither
+    /// returned nor counted. Only the addresses on the page are loaded.
+    /// </remarks>
+    /// <exception cref="ArgumentNullException"><paramref name="criteria"/> is <see langword="null"/>.</exception>
+    /// <exception cref="ArgumentOutOfRangeException">
+    /// The page or the page size of the <paramref name="criteria"/> is less than 1, or its sort field or direction is
+    /// not defined.
+    /// </exception>
+    Task<AddressPage> ListAsync(AddressListCriteria criteria, CancellationToken cancellationToken);
+
+    /// <summary>
     /// Adds a new address and saves it.
     /// </summary>
     /// <param name="address">The new address.</param>
@@ -67,9 +91,9 @@ public interface IAddressRepository
     /// </returns>
     /// <remarks>
     /// A deletion is a change, too: an address marked with <see cref="Address.Delete"/> is saved with this method and
-    /// is kept, but no longer returned by <see cref="GetByIdAsync"/> and <see cref="ListAsync"/>. The version is
-    /// checked when saving, so that a change in the meantime is detected, too. If nothing was saved, the address is no
-    /// longer tracked.
+    /// is kept, but no longer returned by <see cref="GetByIdAsync"/> and
+    /// <see cref="ListAsync(AddressListCriteria, CancellationToken)"/>. The version is checked when saving, so that a
+    /// change in the meantime is detected, too. If nothing was saved, the address is no longer tracked.
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="address"/> is <see langword="null"/>.</exception>
     Task<ChangeStatus> UpdateAsync(Address address, long? expectedVersion, CancellationToken cancellationToken);

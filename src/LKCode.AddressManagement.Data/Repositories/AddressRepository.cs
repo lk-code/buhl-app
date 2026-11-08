@@ -1,4 +1,5 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
+using LKCode.AddressManagement.Core.Addresses.Queries;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Domain.Addresses;
 using Microsoft.EntityFrameworkCore;
@@ -39,6 +40,10 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
 
         return await query.ToListAsync(cancellationToken);
     }
+
+    /// <inheritdoc />
+    public Task<AddressPage> ListAsync(AddressListCriteria criteria, CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 
     /// <inheritdoc />
     public async Task AddAsync(Address address, CancellationToken cancellationToken)
