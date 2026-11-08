@@ -82,6 +82,14 @@ public sealed class Address
     public DateTimeOffset UpdatedAt { get; private set; }
 
     /// <summary>
+    /// Gets the version of the address: 1 after <see cref="Create"/>, increased by one with every change.
+    /// </summary>
+    /// <remarks>
+    /// The version detects concurrent changes: a change based on an outdated version must be rejected.
+    /// </remarks>
+    public long Version { get; private set; }
+
+    /// <summary>
     /// Creates a new address.
     /// </summary>
     /// <param name="firstName">The first name.</param>

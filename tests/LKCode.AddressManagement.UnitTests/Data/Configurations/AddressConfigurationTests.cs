@@ -46,6 +46,7 @@ public class AddressConfigurationTests
             nameof(Address.NormalizedPostalCode),
             nameof(Address.CreatedAt),
             nameof(Address.UpdatedAt),
+            nameof(Address.Version),
         ];
 
         // Act
