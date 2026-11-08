@@ -40,8 +40,20 @@ public static class AddressMappingExtensions
     /// <param name="response">The address to map.</param>
     /// <returns>The request with the values of the address.</returns>
     /// <exception cref="ArgumentNullException"><paramref name="response"/> is <see langword="null"/>.</exception>
-    public static UpdateAddressRequest ToUpdateRequest(this AddressResponse response) =>
-        throw new NotImplementedException();
+    public static UpdateAddressRequest ToUpdateRequest(this AddressResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+
+        return new UpdateAddressRequest(
+            response.FirstName,
+            response.LastName,
+            response.Street,
+            response.HouseNumber,
+            response.PostalCode,
+            response.City,
+            response.Country,
+            response.Email);
+    }
 
     /// <summary>
     /// Creates a new address from the <paramref name="request"/>.
