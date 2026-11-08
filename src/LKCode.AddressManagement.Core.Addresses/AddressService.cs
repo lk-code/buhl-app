@@ -128,7 +128,8 @@ public sealed partial class AddressService(
             return ChangeStatus.NotFound;
         }
 
-        ChangeStatus status = await _addressRepository.DeleteAsync(address, expectedVersion, cancellationToken);
+        address.Delete(_timeProvider);
+        ChangeStatus status = await _addressRepository.UpdateAsync(address, expectedVersion, cancellationToken);
         switch (status)
         {
             case ChangeStatus.Success:
