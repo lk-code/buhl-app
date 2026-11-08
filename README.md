@@ -32,6 +32,7 @@ dotnet run --project src/LKCode.AddressManagement.Service
 | `GET` | `/api/addresses?city=&postalCode=` | `200 OK` mit der Liste der passenden Adressen, auch leer | – |
 | `GET` | `/api/addresses/{id}` | `200 OK` mit der Adresse | `404` unbekannte Id oder keine GUID |
 | `PUT` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse | `400` ungültige Werte oder ungültiges JSON, `404` unbekannte Id oder keine GUID, `415` Body ist kein JSON |
+| `PATCH` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse | `400` ungültiges Patch-Dokument oder ungültige Werte, `404` unbekannte Id oder keine GUID, `409` `test`-Operation fehlgeschlagen, `415` Body ist kein JSON Patch |
 | `DELETE` | `/api/addresses/{id}` | `204 No Content` | `404` unbekannte Id oder keine GUID |
 
 Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
@@ -48,6 +49,11 @@ curl -i "http://localhost:5180/api/addresses?city=koeln&postalCode=511"
 curl -i -X PUT http://localhost:5180/api/addresses/<id> \
   -H "Content-Type: application/json" \
   -d '{"firstName":"Max","lastName":"Mustermann","street":"Hauptstrasse","houseNumber":"1","postalCode":"10115","city":"Berlin","country":"DE"}'
+
+# einzelne Werte ändern (JSON Patch): nur wenn der Vorname noch "Max" ist, Ort ersetzen und E-Mail entfernen
+curl -i -X PATCH http://localhost:5180/api/addresses/<id> \
+  -H "Content-Type: application/json-patch+json" \
+  -d '[{"op":"test","path":"/firstName","value":"Max"},{"op":"replace","path":"/city","value":"Hamburg"},{"op":"remove","path":"/email"}]'
 
 # Adresse löschen
 curl -i -X DELETE http://localhost:5180/api/addresses/<id>
@@ -91,6 +97,7 @@ Das Repository-Interface liegt in `Core.Addresses`, die Implementierung in `Data
 | FluentValidation | Validierungsregeln getrennt vom Modell und einzeln testbar |
 | System.Text.Json | Standard in .NET, durchgehend für JSON |
 | Microsoft.AspNetCore.OpenApi + Scalar | offizieller OpenAPI-Weg seit .NET 9, moderne Oberfläche |
+| Microsoft.AspNetCore.JsonPatch.SystemTextJson | offizielle JSON-Patch-Unterstützung (RFC 6902) auf Basis von System.Text.Json seit .NET 10 |
 | Serilog | strukturiertes Logging |
 | NUnit, AwesomeAssertions, NSubstitute | Unit- und Integrationstests |
 | coverlet + ReportGenerator | Coverage-Messung und Reports |
@@ -162,7 +169,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - MVC behandelt nicht-nullable Properties nicht als implizite Pflichtfelder (`SuppressImplicitRequiredAttributeForNonNullableReferenceTypes`). Sonst würde MVC fehlende oder leere Felder schon vor der Action ablehnen: ohne Bereinigung, nur mit einem Teil der Fehler und mit anderen Meldungen.
 - Bei ungültigem JSON lautet die Meldung nur „The input was not valid.“ (`AllowInputFormatterExceptionMessages = false`), denn die Meldungen von System.Text.Json enthalten interne Typnamen. Ein leerer Body oder `null` ergibt „A non-empty request body is required.“.
 - Validierungsmeldungen sind immer englisch. Die Lokalisierung von FluentValidation ist abgeschaltet (`ValidatorOptions.Global.LanguageManager.Enabled = false`), sonst richteten sich die Standardmeldungen nach der Sprache des Servers.
-- Der Request-Body muss JSON sein (`[Consumes("application/json")]`), sonst kommt **415**. Wie überall in ASP.NET Core gelten auch Medientypen mit dem Suffix `+json` als JSON; das OpenAPI-Dokument nennt deshalb zusätzlich `application/*+json`.
+- Der Request-Body von `POST` und `PUT` muss JSON sein (`[Consumes("application/json")]`), sonst kommt **415**. Wie überall in ASP.NET Core gelten auch Medientypen mit dem Suffix `+json` als JSON; das OpenAPI-Dokument nennt deshalb zusätzlich `application/*+json`. `PATCH` nimmt nur `application/json-patch+json` an (siehe **PATCH**).
 - `201 Created` enthält im `Location`-Header die absolute URL der neuen Adresse. Die URL entsteht über die benannte Route `GetAddressById`, weil MVC das Suffix `Async` aus Action-Namen entfernt und `CreatedAtAction(nameof(GetByIdAsync))` deshalb keine Route fände.
 - Unbekannte Ids und Werte, die keine GUID sind (Constraint `{id:guid}`), liefern **404** mit denselben Problem Details wie eine unbekannte Route.
 - Die Liste (`GET /api/addresses`) hat die optionalen Query-Parameter `city` und `postalCode`. Beide suchen Teilstrings in den normalisierten Werten (siehe **Suche**): `sol`, `ingen` und `SOLin` finden `Solingen`, `Koeln` findet `Köln`. Leere Werte oder Werte nur aus Leerzeichen werden ignoriert, zwei Filter sind UND-verknüpft. Gibt es keinen Treffer, kommt **200** mit leerem Array, nicht 404.
@@ -171,15 +178,16 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - `PUT /api/addresses/{id}` ist ein vollständiges Update: Alle Werte werden ersetzt, Bereinigung und Validierung laufen wie beim Anlegen. Fehlt die E-Mail oder ist sie leer, wird eine vorhandene E-Mail entfernt. `Id` und `CreatedAt` bleiben erhalten, `UpdatedAt` wird neu gesetzt. Die Antwort ist **200** mit der geänderten Adresse, ohne `Location`-Header.
 - `PUT` legt keine Adresse an: Ids vergibt der Server (GUID Version 7), eine unbekannte Id liefert **404**.
 - Prüfreihenfolge bei `PUT`: **415** (kein JSON) → **400** (ungültiges JSON) → **400** (ungültige Werte) → **404** (unbekannte Id). Der Body wird also vor der Id geprüft; ein ungültiger Body ergibt auch bei unbekannter Id **400**. 415 und Fehler im JSON entstehen in ASP.NET Core ohnehin vor der Action, und die Validierung braucht keinen Datenbankzugriff. Daran ist nicht erkennbar, ob eine Adresse existiert.
-- `DELETE /api/addresses/{id}` entfernt die Adresse und antwortet mit **204** ohne Body. Danach liefern `GET`, `PUT` und erneutes `DELETE` für diese Id **404** mit denselben Problem Details wie für eine nie vergebene Id.
+- `DELETE /api/addresses/{id}` entfernt die Adresse und antwortet mit **204** ohne Body. Danach liefern `GET`, `PUT`, `PATCH` und erneutes `DELETE` für diese Id **404** mit denselben Problem Details wie für eine nie vergebene Id.
 
 **OpenAPI**
 - Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
-- Die `operationId`s kommen aus den Routennamen der Actions: `CreateAddress`, `GetAddressById`, `ListAddresses`, `UpdateAddress` und `DeleteAddress`. Die Antwort **204** von `DELETE` hat keinen Body und deshalb kein Schema.
+- Die `operationId`s kommen aus den Routennamen der Actions: `CreateAddress`, `GetAddressById`, `ListAddresses`, `UpdateAddress`, `PatchAddress` und `DeleteAddress`. Die Antwort **204** von `DELETE` hat keinen Body und deshalb kein Schema.
 - `LocationHeaderOperationTransformer` beschreibt den `Location`-Header jeder 201-Antwort, denn Attribute können keine Header beschreiben.
 - `AddressSchemaTransformer` ergänzt die Schemas der Requests und von `AddressResponse` aus `AddressConstraints`: `required`, `minLength`/`maxLength`, `pattern` `^[A-Z]{2}$` für `country` sowie `format: email` und `null` als erlaubten Typ für `email`. Die Schemas beschreiben bereinigte Werte; die API nimmt auch Werte mit Leerzeichen am Rand oder `country` in Kleinbuchstaben an.
+- Für jedes JSON-Patch-Dokument erzeugt ASP.NET Core dasselbe generische Schema `JsonPatchDocument`: ein Array von Operationen (`oneOf` aus `add`/`replace`/`test`, `move`/`copy` und `remove`), in dem `path` und `from` beliebige Strings und `value` beliebige Werte sind. `AddressPatchDocumentSchemaTransformer` schränkt `path` und `from` auf die JSON Pointer der acht Felder ein (`enum`) und `value` auf `string` oder `null`. Die Pointer kommen aus den JSON-Optionen, also aus derselben Quelle wie bei der Prüfung zur Laufzeit. Die Regeln der einzelnen Felder (Länge, Pattern, Format) gelten für die geänderte Adresse und stehen im Schema `UpdateAddressRequest`. Pro Feld als eigenes `oneOf` wären sie zwar ausdrückbar, das Schema würde dadurch aber unlesbar.
 - `ProblemDetailsSchemaTransformer` beschreibt `ProblemDetails` und `ValidationProblemDetails` so, wie die API sie schreibt: `type`, `title`, `status` und `traceId` (bei Validierungsfehlern zusätzlich `errors`) sind immer enthalten, `status` ist eine Ganzzahl zwischen 100 und 599, `type` und `instance` sind URI-Referenzen. Ohne den Transformer fehlte `traceId`, und `status` wäre auch als String beschrieben, weil die JSON-Optionen Zahlen aus Strings lesen dürfen.
-- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die fünf Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`), keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
+- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die sechs Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`), keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
 - Fallstrick im XML-Kommentar-Generator von .NET 10: Er schreibt die Beschreibung jedes `<param>`, der kein Operation-Parameter ist, an den Request-Body, also auch die des `CancellationToken`. Der Body-Parameter wird deshalb als letzter dokumentiert.
 
 **Fehlerbehandlung**
@@ -201,6 +209,13 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 
 **PATCH**
 - JSON Patch (RFC 6902) statt JSON Merge Patch: eindeutiges Format für generierte Clients und offizielle Unterstützung mit System.Text.Json.
+- Ablauf: Patch-Dokument prüfen → aktuelle Adresse laden → als `UpdateAddressRequest` abbilden (`ToUpdateRequest()`) → Operationen anwenden → bereinigen, validieren und speichern auf demselben Weg wie bei `PUT`. Es gibt keine eigene Update-Logik für `PATCH`. Die Operationen ändern nur diese Kopie, deshalb wirken alle zusammen oder keine.
+- Unterstützt werden alle sechs Operationen: `add`, `remove`, `replace`, `move`, `copy` und `test`. Da eine Adresse feste Felder hat, setzen `add` und `replace` beide den Wert eines Felds, und `remove` setzt ihn auf `null`. Bei Pflichtfeldern führt das zu **400** mit dem Feldfehler, bei `email` wird die E-Mail entfernt.
+- Die Operationen werden vor dem Anwenden streng geprüft (`AddressPatchDocumentExtensions.ValidateOperations`), denn die Bibliothek ist an mehreren Stellen nachsichtig oder fehlerhaft: Ein fehlendes `op` behandelt sie als `add`, Groß-/Kleinschreibung bei `op` und in Pfaden ignoriert sie, ein fehlendes `path` oder `from` führt zu einer `ArgumentNullException` (also **500**), und bei `test` unterscheidet sie einen unbekannten Pfad nicht von einem abweichenden Wert. Erlaubt sind deshalb nur die sechs Operationen in Kleinbuchstaben, als Pfade nur die JSON Pointer der acht Felder mit exaktem Namen (`/firstName`, nicht `/FirstName`, RFC 6901 ist case-sensitiv) und als `value` nur ein String oder `null`. Alle Fehler kommen zusammen als **400**, jeweils unter dem JSON-Pfad im Patch-Dokument (`$[0].path`).
+- Ein fehlendes `value` kann die Bibliothek nicht von `null` unterscheiden; es wird wie `null` behandelt. Das OpenAPI-Schema verlangt `value` trotzdem, wie RFC 6902.
+- `test` vergleicht exakt, also ohne Bereinigung und mit Groß-/Kleinschreibung. Schlägt ein Test fehl, antwortet die API mit **409** (RFC 5789: Der Patch passt nicht zum Zustand der Ressource), und `detail` nennt Index und Pfad der Operation. Die Bibliothek wendet nach einem fehlgeschlagenen Test die weiteren Operationen trotzdem an. Das schadet nicht, weil die Kopie dann verworfen wird.
+- Prüfreihenfolge: **415** (kein JSON Patch) → **400** (ungültiges JSON) → **400** (ungültige Operationen) → **404** (unbekannte Id) → **409** (Test fehlgeschlagen) → **400** (ungültige Werte). Wie bei `PUT` wird der Body vor der Id geprüft, soweit das ohne die Adresse möglich ist.
+- Ein leeres Patch-Dokument `[]` ist gültig und wirkt wie `PUT` mit den aktuellen Werten; `UpdatedAt` wird neu gesetzt.
 
 **Caching**
 - Serverseitiges Output Caching mit Invalidierung per Tag bei jeder Änderung. Der Cache liegt im Speicher der jeweiligen Instanz; bei mehreren Instanzen wäre ein verteilter Store (z. B. Redis) nötig.
