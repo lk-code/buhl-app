@@ -26,7 +26,12 @@ public sealed class TextNormalizer : ITextNormalizer
     }
 
     /// <inheritdoc />
-    public string NormalizePostalCode(string value) => throw new NotImplementedException();
+    public string NormalizePostalCode(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        return string.Concat(value.Where(character => !char.IsWhiteSpace(character))).ToUpperInvariant();
+    }
 
     private static string ReplaceSpecialCharacters(string value)
     {
