@@ -270,6 +270,284 @@ public class AddressTests
         act.Should().ThrowExactly<ArgumentNullException>().WithParameterName("timeProvider");
     }
 
+    [Test]
+    public void Update_ValidInput_ChangesAllFields()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = AddressInput.Changed;
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        AddressInput.From(address).Should().Be(input);
+    }
+
+    [Test]
+    public void Update_ValidInput_KeepsIdAndCreatedAt()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        Guid id = address.Id;
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+
+        // Act
+        Update(address, AddressInput.Changed);
+
+        // Assert
+        address.Id.Should().Be(id);
+        address.CreatedAt.Should().Be(_startTime);
+    }
+
+    [Test]
+    public void Update_ValidInput_SetsUpdatedAtToCurrentTime()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+
+        // Act
+        Update(address, AddressInput.Changed);
+
+        // Assert
+        address.UpdatedAt.Should().Be(_startTime.AddHours(2));
+    }
+
+    [Test]
+    public void Update_ValidInput_UpdatesNormalizedFieldsFromTrimmedValues()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = AddressInput.Changed with { City = " London\t", PostalCode = "  SW1A 1AA " };
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        address.NormalizedCity.Should().Be("city:London");
+        address.NormalizedPostalCode.Should().Be("postal:SW1A 1AA");
+    }
+
+    [Test]
+    public void Update_SurroundingWhitespace_TrimsAllValues()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        var input = new AddressInput(
+            " Max  ",
+            "Musterfrau\t",
+            "\nHauptstraße",
+            " 4a ",
+            "\tSW1A 1AA ",
+            " London\r\n",
+            "  GB ",
+            " max.musterfrau@example.org\t");
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        AddressInput.From(address).Should().Be(AddressInput.Changed);
+    }
+
+    [TestCase("gb")]
+    [TestCase("Gb")]
+    [TestCase("gB")]
+    [TestCase(" gb ")]
+    public void Update_LowerCaseCountry_ConvertsCountryToUpperCase(string country)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = AddressInput.Changed with { Country = country };
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        address.Country.Should().Be("GB");
+    }
+
+    [TestCase("")]
+    [TestCase(" ")]
+    [TestCase("\t\n")]
+    public void Update_BlankEmail_RemovesEmail(string email)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = AddressInput.Changed with { Email = email };
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        address.Email.Should().BeNull();
+    }
+
+    [Test]
+    public void Update_NullEmail_RemovesEmail()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = AddressInput.Changed with { Email = null };
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        address.Email.Should().BeNull();
+    }
+
+    [TestCaseSource(typeof(AddressField), nameof(AddressField.All))]
+    public void Update_ValueAtMaxLength_KeepsValue(AddressField field)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = field.With(AddressInput.Changed, field.ValueAtMaxLength);
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        AddressInput.From(address).Should().Be(input);
+    }
+
+    [TestCaseSource(typeof(AddressField), nameof(AddressField.All))]
+    public void Update_ValueAtMaxLengthWithSurroundingWhitespace_KeepsTrimmedValue(AddressField field)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = field.With(AddressInput.Changed, $"\t{field.ValueAtMaxLength}  ");
+
+        // Act
+        Update(address, input);
+
+        // Assert
+        AddressInput.From(address).Should().Be(field.With(AddressInput.Changed, field.ValueAtMaxLength));
+    }
+
+    [TestCaseSource(typeof(AddressField), nameof(AddressField.All))]
+    public void Update_ValueExceedsMaxLength_ThrowsArgumentException(AddressField field)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = field.With(AddressInput.Changed, field.ValueExceedingMaxLength);
+
+        // Act
+        Action act = () => Update(address, input);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentException>().WithParameterName(field.ParameterName);
+    }
+
+    [TestCaseSource(nameof(BlankRequiredFieldCases))]
+    public void Update_BlankRequiredValue_ThrowsArgumentException(AddressField field, string value)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = field.With(AddressInput.Changed, value);
+
+        // Act
+        Action act = () => Update(address, input);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentException>().WithParameterName(field.ParameterName);
+    }
+
+    [TestCaseSource(typeof(AddressField), nameof(AddressField.Required))]
+    public void Update_NullRequiredValue_ThrowsArgumentNullException(AddressField field)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = field.With(AddressInput.Changed, null);
+
+        // Act
+        Action act = () => Update(address, input);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentNullException>().WithParameterName(field.ParameterName);
+    }
+
+    [TestCaseSource(typeof(AddressField), nameof(AddressField.All))]
+    public void Update_InvalidValue_LeavesAddressUnchanged(AddressField field)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        var expected = new
+        {
+            address.Id,
+            address.FirstName,
+            address.LastName,
+            address.Street,
+            address.HouseNumber,
+            address.PostalCode,
+            address.City,
+            address.Country,
+            address.Email,
+            address.NormalizedCity,
+            address.NormalizedPostalCode,
+            address.CreatedAt,
+            address.UpdatedAt,
+        };
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+        AddressInput input = field.With(AddressInput.Changed, field.ValueExceedingMaxLength);
+
+        // Act
+        Action act = () => Update(address, input);
+
+        // Assert
+        act.Should().Throw<ArgumentException>();
+        address.Should().BeEquivalentTo(expected);
+    }
+
+    [Test]
+    public void Update_NullTextNormalizer_ThrowsArgumentNullException()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = AddressInput.Changed;
+
+        // Act
+        Action act = () => address.Update(
+            input.FirstName,
+            input.LastName,
+            input.Street,
+            input.HouseNumber,
+            input.PostalCode,
+            input.City,
+            input.Country,
+            input.Email,
+            null!,
+            _timeProvider);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentNullException>().WithParameterName("textNormalizer");
+    }
+
+    [Test]
+    public void Update_NullTimeProvider_ThrowsArgumentNullException()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        AddressInput input = AddressInput.Changed;
+
+        // Act
+        Action act = () => address.Update(
+            input.FirstName,
+            input.LastName,
+            input.Street,
+            input.HouseNumber,
+            input.PostalCode,
+            input.City,
+            input.Country,
+            input.Email,
+            _textNormalizer,
+            null!);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentNullException>().WithParameterName("timeProvider");
+    }
+
     private static IEnumerable<TestCaseData> BlankRequiredFieldCases() =>
         from field in AddressField.Required
         from value in _blankValues
@@ -286,6 +564,18 @@ public class AddressTests
     }
 
     private Address Create(AddressInput input) => Address.Create(
+        input.FirstName,
+        input.LastName,
+        input.Street,
+        input.HouseNumber,
+        input.PostalCode,
+        input.City,
+        input.Country,
+        input.Email,
+        _textNormalizer,
+        _timeProvider);
+
+    private void Update(Address address, AddressInput input) => address.Update(
         input.FirstName,
         input.LastName,
         input.Street,

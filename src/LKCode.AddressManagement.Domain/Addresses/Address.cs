@@ -144,6 +144,31 @@ public sealed class Address
     }
 
     /// <summary>
+    /// Changes all values of the address.
+    /// </summary>
+    /// <param name="firstName">The first name.</param>
+    /// <param name="lastName">The last name.</param>
+    /// <param name="street">The street.</param>
+    /// <param name="houseNumber">The house number.</param>
+    /// <param name="postalCode">The postal code.</param>
+    /// <param name="city">The city.</param>
+    /// <param name="country">The country as ISO 3166-1 alpha-2 code.</param>
+    /// <param name="email">The optional email address.</param>
+    /// <param name="textNormalizer">The normalizer for the city and the postal code.</param>
+    /// <param name="timeProvider">The provider of the current time.</param>
+    public void Update(
+        string firstName,
+        string lastName,
+        string street,
+        string houseNumber,
+        string postalCode,
+        string city,
+        string country,
+        string? email,
+        ITextNormalizer textNormalizer,
+        TimeProvider timeProvider) => throw new NotImplementedException();
+
+    /// <summary>
     /// Checks and cleans all values first and assigns them afterwards, so that the address stays unchanged if a value
     /// is invalid.
     /// </summary>

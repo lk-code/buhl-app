@@ -3,7 +3,8 @@ using LKCode.AddressManagement.Domain.Addresses;
 namespace LKCode.AddressManagement.UnitTests.Domain.Addresses;
 
 /// <summary>
-/// The input values of <see cref="Address.Create"/>, used to vary single values in tests.
+/// The input values of <see cref="Address.Create"/> and <see cref="Address.Update"/>, used to vary single values
+/// in tests.
 /// </summary>
 public sealed record AddressInput(
     string FirstName,
@@ -24,6 +25,16 @@ public sealed record AddressInput(
         "Köln",
         "DE",
         "erika.mustermann@example.com");
+
+    public static AddressInput Changed { get; } = new(
+        "Max",
+        "Musterfrau",
+        "Hauptstraße",
+        "4a",
+        "SW1A 1AA",
+        "London",
+        "GB",
+        "max.musterfrau@example.org");
 
     public static AddressInput From(Address address) => new(
         address.FirstName,
