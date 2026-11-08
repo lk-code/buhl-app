@@ -208,9 +208,139 @@ public class AddressRepositoryTests
         await act.Should().ThrowAsync<OperationCanceledException>();
     }
 
+    [Test]
+    public async Task UpdateAsync_TrackedAddressChanged_PersistsAllChanges()
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        _timeProvider.Advance(TimeSpan.FromMinutes(5));
+        UpdateAddress(address!, AddressInput.Changed);
+
+        // Act
+        await repository.UpdateAsync(address!, CancellationToken.None);
+
+        // Assert
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        Address storedAddress = stored.Should().ContainSingle().Subject;
+        AddressInput.From(storedAddress).Should().Be(AddressInput.Changed);
+        storedAddress.Id.Should().Be(original.Id);
+        storedAddress.NormalizedCity.Should().Be("london");
+        storedAddress.NormalizedPostalCode.Should().Be("SW1A1AA");
+        storedAddress.CreatedAt.Should().Be(_startTime);
+        storedAddress.UpdatedAt.Should().Be(_startTime.AddMinutes(5));
+    }
+
+    [Test]
+    public async Task UpdateAsync_DetachedAddressChanged_PersistsAllChanges()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address);
+        _timeProvider.Advance(TimeSpan.FromMinutes(5));
+        UpdateAddress(address, AddressInput.Changed);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        await repository.UpdateAsync(address, CancellationToken.None);
+
+        // Assert
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(address);
+    }
+
+    [Test]
+    public async Task UpdateAsync_ChangedAddress_LeavesOtherAddressesUnchanged()
+    {
+        // Arrange
+        Address address = CreateAddress(AddressInput.Valid);
+        Address other = CreateAddress(AddressInput.Valid);
+        await SeedAsync(address, other);
+        _timeProvider.Advance(TimeSpan.FromMinutes(5));
+        UpdateAddress(address, AddressInput.Changed);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        await repository.UpdateAsync(address, CancellationToken.None);
+
+        // Assert
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle(storedAddress => storedAddress.Id == other.Id)
+            .Which.Should().BeEquivalentTo(other);
+    }
+
+    [Test]
+    public async Task UpdateAsync_NullAddress_ThrowsArgumentNullException()
+    {
+        // Arrange
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Func<Task> act = () => repository.UpdateAsync(null!, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("address");
+    }
+
+    [Test]
+    public async Task UpdateAsync_CanceledToken_ThrowsOperationCanceledExceptionAndSavesNothing()
+    {
+        // Arrange
+        Address original = CreateAddress(AddressInput.Valid);
+        await SeedAsync(original);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+        Address? address = await repository.GetByIdAsync(original.Id, CancellationToken.None);
+        UpdateAddress(address!, AddressInput.Changed);
+        using var cancellationTokenSource = new CancellationTokenSource();
+        await cancellationTokenSource.CancelAsync();
+
+        // Act
+        Func<Task> act = () => repository.UpdateAsync(address!, cancellationTokenSource.Token);
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        IReadOnlyList<Address> stored = await LoadAllAsync();
+        stored.Should().ContainSingle().Which.Should().BeEquivalentTo(original);
+    }
+
+    [Test]
+    public async Task UpdateAsync_NeverSavedAddress_ThrowsDbUpdateConcurrencyException()
+    {
+        // Arrange
+        await SeedAsync(CreateAddress(AddressInput.Valid));
+        Address address = CreateAddress(AddressInput.Changed);
+        await using AddressDbContext context = CreateContext();
+        var repository = new AddressRepository(context);
+
+        // Act
+        Func<Task> act = () => repository.UpdateAsync(address, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<DbUpdateConcurrencyException>();
+    }
+
     private AddressDbContext CreateContext() => new(_options);
 
     private Address CreateAddress(AddressInput input) => Address.Create(
+        input.FirstName,
+        input.LastName,
+        input.Street,
+        input.HouseNumber,
+        input.PostalCode,
+        input.City,
+        input.Country,
+        input.Email,
+        _textNormalizer,
+        _timeProvider);
+
+    private void UpdateAddress(Address address, AddressInput input) => address.Update(
         input.FirstName,
         input.LastName,
         input.Street,
