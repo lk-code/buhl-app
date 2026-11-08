@@ -6,6 +6,7 @@ using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Extensions;
+using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 
@@ -40,7 +41,11 @@ public sealed class AddressesController(
     private const string ListRouteName = "ListAddresses";
     private const string CreateRouteName = "CreateAddress";
     private const string UpdateRouteName = "UpdateAddress";
+    private const string PatchRouteName = "PatchAddress";
     private const string DeleteRouteName = "DeleteAddress";
+
+    // MediaTypeNames has no constant for JSON Patch (RFC 6902, section 6).
+    private const string JsonPatchMediaType = "application/json-patch+json";
 
     private readonly IAddressService _addressService =
         addressService ?? throw new ArgumentNullException(nameof(addressService));
@@ -204,6 +209,58 @@ public sealed class AddressesController(
 
         return await SanitizeValidateAndUpdateAsync(id, request, cancellationToken);
     }
+
+    /// <summary>
+    /// Changes single values of the address with the given id with a JSON Patch document (RFC 6902).
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <param name="patchDocument">The operations to apply to the values of the address.</param>
+    /// <returns>
+    /// <c>200 OK</c> with the changed address, <c>400 Bad Request</c> with all errors of the patch document or of
+    /// the changed values, <c>404 Not Found</c> if there is no address with the id, or <c>409 Conflict</c> if a
+    /// <c>test</c> operation failed.
+    /// </returns>
+    /// <remarks>
+    /// The operations are applied in their order to the current values of the address, as they would be sent with
+    /// `PUT`. The changed values are then checked and stored like with `PUT`: all values are trimmed, the country is
+    /// converted to uppercase and a blank email address is treated as missing. All operations take effect together
+    /// or not at all.
+    ///
+    /// Supported are `add`, `remove`, `replace`, `move`, `copy` and `test`. `path` and `from` point to a field of the
+    /// address with its exact name, e.g. `/firstName`; `add` and `replace` both set the value of a field, `remove`
+    /// removes it. Removing a required value results in a validation error; a missing `value` is treated as `null`.
+    ///
+    /// The checks run in this order: errors in the patch document itself result in `400 Bad Request` with the
+    /// errors keyed by their JSON path, e.g. `$[0].path`, even if there is no address with the id. Then an unknown id
+    /// or an id that is no GUID results in `404 Not Found`, a failed `test` operation in `409 Conflict`, and invalid
+    /// changed values in `400 Bad Request` with the errors keyed by the name of the field, e.g. `firstName`.
+    /// </remarks>
+    /// <response code="200">The address was changed.</response>
+    /// <response code="400">
+    /// The body is no valid JSON Patch document for an address, or the changed values are invalid.
+    /// </response>
+    /// <response code="404">There is no address with the id.</response>
+    /// <response code="409">A `test` operation failed; the address was not changed.</response>
+    /// <response code="415">The body is not a JSON Patch document (`application/json-patch+json`).</response>
+    /// <response code="500">An unexpected error occurred.</response>
+    /// <exception cref="ArgumentNullException"><paramref name="patchDocument"/> is <see langword="null"/>.</exception>
+    [HttpPatch("{id:guid}", Name = PatchRouteName)]
+    [Consumes(JsonPatchMediaType)]
+    [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
+    [ProducesResponseType<ValidationProblemDetails>(
+        StatusCodes.Status400BadRequest,
+        MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict, MediaTypeNames.Application.ProblemJson)]
+    [ProducesResponseType<ProblemDetails>(
+        StatusCodes.Status415UnsupportedMediaType,
+        MediaTypeNames.Application.ProblemJson)]
+    public Task<ActionResult<AddressResponse>> PatchAsync(
+        Guid id,
+        JsonPatchDocument<UpdateAddressRequest> patchDocument,
+        CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 
     /// <summary>
     /// Deletes the address with the given id.

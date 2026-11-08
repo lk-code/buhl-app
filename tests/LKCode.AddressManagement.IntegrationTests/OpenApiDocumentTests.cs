@@ -25,6 +25,7 @@ public class OpenApiDocumentTests
         ("/api/addresses", "post"),
         ("/api/addresses/{id}", "get"),
         ("/api/addresses/{id}", "put"),
+        ("/api/addresses/{id}", "patch"),
         ("/api/addresses/{id}", "delete"),
     ];
 
@@ -180,6 +181,7 @@ public class OpenApiDocumentTests
             "AddressResponse",
             "CreateAddressRequest",
             "UpdateAddressRequest",
+            "JsonPatchDocument",
             ProblemDetailsSchema,
             ValidationProblemDetailsSchema);
     }
