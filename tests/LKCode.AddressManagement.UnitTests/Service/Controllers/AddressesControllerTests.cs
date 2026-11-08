@@ -314,6 +314,46 @@ public class AddressesControllerTests
         await _addressService.DidNotReceiveWithAnyArgs().CreateAsync(default!, default);
     }
 
+    [Test]
+    public async Task DeleteAsync_KnownId_ReturnsNoContent()
+    {
+        // Arrange
+        _addressService.DeleteAsync(_address.Id, Arg.Any<CancellationToken>()).Returns(true);
+
+        // Act
+        IActionResult result = await _controller.DeleteAsync(_address.Id, CancellationToken.None);
+
+        // Assert
+        result.Should().BeOfType<NoContentResult>();
+    }
+
+    [Test]
+    public async Task DeleteAsync_UnknownId_ReturnsNotFound()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7(_createdAt);
+        _addressService.DeleteAsync(id, Arg.Any<CancellationToken>()).Returns(false);
+
+        // Act
+        IActionResult result = await _controller.DeleteAsync(id, CancellationToken.None);
+
+        // Assert
+        result.Should().BeOfType<NotFoundResult>();
+    }
+
+    [Test]
+    public async Task DeleteAsync_AnyId_PassesIdAndCancellationToken()
+    {
+        // Arrange
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _controller.DeleteAsync(_address.Id, cancellationTokenSource.Token);
+
+        // Assert
+        await _addressService.Received(1).DeleteAsync(_address.Id, cancellationTokenSource.Token);
+    }
+
     private void ReturnValidationErrors(params ValidationFailure[] failures)
     {
         _createAddressValidator

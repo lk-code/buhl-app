@@ -12,7 +12,7 @@ using Microsoft.Extensions.Options;
 namespace LKCode.AddressManagement.Service.Controllers;
 
 /// <summary>
-/// The endpoints to create, read and list addresses.
+/// The endpoints to create, read, list and delete addresses.
 /// </summary>
 /// <param name="addressService">The service that reads and stores the addresses.</param>
 /// <param name="createAddressValidator">The validator of the requests to create an address.</param>
@@ -153,4 +153,24 @@ public sealed class AddressesController(
 
         return CreatedAtRoute(GetByIdRouteName, new { id = address.Id }, address);
     }
+
+    /// <summary>
+    /// Deletes the address with the given id.
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>
+    /// <c>204 No Content</c>, or <c>404 Not Found</c> if there is no address with the id.
+    /// </returns>
+    /// <remarks>
+    /// After the deletion, all requests for the id result in `404 Not Found`, including another deletion. An unknown
+    /// id and an id that is no GUID both result in `404 Not Found`, like an unknown route. It is not possible to tell
+    /// whether an address with the id has ever existed.
+    /// </remarks>
+    /// <response code="204">The address was deleted.</response>
+    /// <response code="404">There is no address with the id.</response>
+    /// <response code="500">An unexpected error occurred.</response>
+    [HttpDelete("{id:guid}")]
+    public Task<IActionResult> DeleteAsync(Guid id, CancellationToken cancellationToken) =>
+        throw new NotImplementedException();
 }
