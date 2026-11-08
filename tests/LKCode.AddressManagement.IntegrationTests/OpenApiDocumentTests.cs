@@ -157,7 +157,7 @@ public class OpenApiDocumentTests
     }
 
     [Test]
-    public void Responses_CreatedOrWithHeaders_AreOnlyCreatedAddressWithLocationHeader()
+    public void Responses_CreatedOrWithHeaders_AreOnlySingleAddressesWithETagAndCreatedAddressWithLocation()
     {
         // Act
         IEnumerable<string> responses = _operations.SelectMany(operation =>
@@ -167,7 +167,27 @@ public class OpenApiDocumentTests
                     + string.Join(", ", GetHeaderNames(response.Value))));
 
         // Assert
-        responses.Should().Equal("post /api/addresses 201: Location");
+        responses.Should().Equal(
+            "post /api/addresses 201: Location, ETag",
+            "get /api/addresses/{id} 200: ETag",
+            "put /api/addresses/{id} 200: ETag",
+            "patch /api/addresses/{id} 200: ETag");
+    }
+
+    [Test]
+    public void Operations_WithPreconditionRequiredResponse_AreExactlyTheChangesOfAnAddress()
+    {
+        // Act
+        IEnumerable<string> operations = _operations
+            .Where(operation => GetOperation(operation.Path, operation.Method).GetProperty("responses")
+                .TryGetProperty("428", out _))
+            .Select(operation => $"{operation.Method} {operation.Path}");
+
+        // Assert
+        operations.Should().Equal(
+            "put /api/addresses/{id}",
+            "patch /api/addresses/{id}",
+            "delete /api/addresses/{id}");
     }
 
     [Test]
