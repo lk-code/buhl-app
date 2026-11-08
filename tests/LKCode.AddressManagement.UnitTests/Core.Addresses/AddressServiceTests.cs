@@ -937,7 +937,7 @@ public class AddressServiceTests
     /// the real repository after the address was deleted.
     /// </summary>
     private void ReturnNullAfterFirstLoad(Address address) =>
-        _addressRepository.GetByIdAsync(address.Id, Arg.Any<CancellationToken>()).Returns(address, null);
+        _addressRepository.GetByIdAsync(address.Id, Arg.Any<CancellationToken>()).Returns(address, [null]);
 
     /// <summary>
     /// Creates an address with the given values and lets the repository return it for its id. Unknown ids return
