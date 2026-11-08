@@ -16,6 +16,7 @@ builder.Services
 builder.Services.AddControllers();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ProblemDetailsExceptionHandler>();
+builder.Services.AddOpenApi();
 
 WebApplication app = builder.Build();
 
@@ -24,6 +25,9 @@ app.UseExceptionHandler();
 
 // Writes Problem Details for error responses without a body, e.g. 404 for an unknown route.
 app.UseStatusCodePages();
+
+// The OpenAPI document is the contract of the API and is therefore available in every environment.
+app.MapOpenApi();
 
 app.MapControllers();
 

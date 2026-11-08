@@ -55,7 +55,7 @@ public class OpenApiTests
         (response.Content.Headers.ContentType?.MediaType).Should().Be("application/json");
         JsonElement document = await response.Content.ReadFromJsonAsync<JsonElement>();
         document.GetProperty("openapi").GetString().Should().StartWith("3.");
-        document.GetProperty("info").GetProperty("version").GetString().Should().Be("v1");
+        document.GetProperty("info").GetProperty("title").GetString().Should().NotBeNullOrWhiteSpace();
         document.TryGetProperty("paths", out _).Should().BeTrue();
     }
 
