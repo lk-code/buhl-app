@@ -597,6 +597,91 @@ public class AddressServiceTests
         await _addressRepository.DidNotReceiveWithAnyArgs().GetByIdAsync(default, default);
     }
 
+    [Test]
+    public async Task DeleteAsync_KnownId_DeletesAddressAndReturnsTrue()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+
+        // Act
+        bool deleted = await _service.DeleteAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        deleted.Should().BeTrue();
+        await _addressRepository.Received(1).DeleteAsync(address, Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task DeleteAsync_UnknownId_ReturnsFalseAndDeletesNothing()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7();
+
+        // Act
+        bool deleted = await _service.DeleteAsync(id, CancellationToken.None);
+
+        // Assert
+        deleted.Should().BeFalse();
+        await _addressRepository.DidNotReceiveWithAnyArgs().DeleteAsync(default!, default);
+    }
+
+    [Test]
+    public async Task DeleteAsync_KnownId_PassesIdAndCancellationToken()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _service.DeleteAsync(address.Id, cancellationTokenSource.Token);
+
+        // Assert
+        await _addressRepository.Received(1).GetByIdAsync(address.Id, cancellationTokenSource.Token);
+        await _addressRepository.Received(1).DeleteAsync(address, cancellationTokenSource.Token);
+    }
+
+    [Test]
+    public async Task DeleteAsync_KnownId_LogsDeletedAddress()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+
+        // Act
+        await _service.DeleteAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Information, 6, $"Deleted address {address.Id}", address.Id);
+    }
+
+    [Test]
+    public async Task DeleteAsync_UnknownId_LogsNotFound()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7();
+
+        // Act
+        await _service.DeleteAsync(id, CancellationToken.None);
+
+        // Assert
+        ShouldHaveLoggedSingle(LogLevel.Debug, 3, $"Address {id} was not found", id);
+    }
+
+    [Test]
+    public async Task DeleteAsync_DeletingCanceled_ThrowsOperationCanceledExceptionAndLogsNothing()
+    {
+        // Arrange
+        Address address = CreateStoredAddress();
+        _addressRepository.DeleteAsync(address, Arg.Any<CancellationToken>())
+            .ThrowsAsync(new OperationCanceledException());
+
+        // Act
+        Func<Task> act = () => _service.DeleteAsync(address.Id, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        _logger.Collector.Count.Should().Be(0);
+    }
+
     /// <summary>
     /// Creates an address with the given values and lets the repository return it for its id. Unknown ids return
     /// <see langword="null"/>.
