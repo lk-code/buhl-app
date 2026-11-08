@@ -1,5 +1,6 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Domain.Addresses;
+using Microsoft.EntityFrameworkCore;
 
 namespace LKCode.AddressManagement.Data.Repositories;
 
@@ -13,10 +14,8 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     private readonly AddressDbContext _dbContext = dbContext ?? throw new ArgumentNullException(nameof(dbContext));
 
     /// <inheritdoc />
-    public Task<Address?> GetByIdAsync(Guid id, CancellationToken cancellationToken)
-    {
-        throw new NotImplementedException();
-    }
+    public Task<Address?> GetByIdAsync(Guid id, CancellationToken cancellationToken) =>
+        _dbContext.Addresses.FirstOrDefaultAsync(address => address.Id == id, cancellationToken);
 
     /// <inheritdoc />
     public Task<IReadOnlyList<Address>> ListAsync(
