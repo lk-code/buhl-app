@@ -28,14 +28,16 @@ dotnet run --project src/LKCode.AddressManagement.Service
 
 | Methode | Pfad | Erfolg | Fehler |
 |---|---|---|---|
-| `POST` | `/api/addresses` | `201 Created` mit der Adresse und ihrer URL im `Location`-Header | `400` ungültige Werte oder ungültiges JSON, `415` Body ist kein JSON |
+| `POST` | `/api/addresses` | `201 Created` mit der Adresse, ihrer URL im `Location`-Header und ihrer Version im `ETag`-Header | `400` ungültige Werte oder ungültiges JSON, `415` Body ist kein JSON |
 | `GET` | `/api/addresses?city=&postalCode=` | `200 OK` mit der Liste der passenden Adressen, auch leer | – |
-| `GET` | `/api/addresses/{id}` | `200 OK` mit der Adresse | `404` unbekannte Id oder keine GUID |
-| `PUT` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse | `400` ungültige Werte oder ungültiges JSON, `404` unbekannte Id oder keine GUID, `415` Body ist kein JSON |
-| `PATCH` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse | `400` ungültiges Patch-Dokument oder ungültige Werte, `404` unbekannte Id oder keine GUID, `409` `test`-Operation fehlgeschlagen, `415` Body ist kein JSON Patch |
-| `DELETE` | `/api/addresses/{id}` | `204 No Content` | `404` unbekannte Id oder keine GUID |
+| `GET` | `/api/addresses/{id}` | `200 OK` mit der Adresse und ihrer Version im `ETag`-Header | `404` unbekannte Id oder keine GUID |
+| `PUT` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse und ihrer neuen Version im `ETag`-Header | `400` ungültiges `If-Match`, ungültige Werte oder ungültiges JSON, `404` unbekannte Id oder keine GUID, `412` Version passt nicht, `415` Body ist kein JSON, `428` `If-Match` fehlt |
+| `PATCH` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse und ihrer neuen Version im `ETag`-Header | `400` ungültiges `If-Match`, ungültiges Patch-Dokument oder ungültige Werte, `404` unbekannte Id oder keine GUID, `409` `test`-Operation fehlgeschlagen, `412` Version passt nicht, `415` Body ist kein JSON Patch, `428` `If-Match` fehlt |
+| `DELETE` | `/api/addresses/{id}` | `204 No Content` | `400` ungültiges `If-Match`, `404` unbekannte Id oder keine GUID, `412` Version passt nicht, `428` `If-Match` fehlt |
 
 Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
+
+`PUT`, `PATCH` und `DELETE` verlangen den Header `If-Match` mit dem `ETag` der Version, auf die sich die Änderung bezieht (z. B. `"1"`), oder `*` für jede Version (siehe **Optimistic Concurrency**).
 
 ```bash
 curl -i -X POST http://localhost:5180/api/addresses \
@@ -45,18 +47,20 @@ curl -i -X POST http://localhost:5180/api/addresses \
 # Adressen, deren Ort „Koeln“ (also auch „Köln“) und deren PLZ „511“ enthält
 curl -i "http://localhost:5180/api/addresses?city=koeln&postalCode=511"
 
-# alle Werte einer Adresse ersetzen; ohne "email" wird eine vorhandene E-Mail entfernt
+# alle Werte der Version 1 einer Adresse ersetzen; ohne "email" wird eine vorhandene E-Mail entfernt
 curl -i -X PUT http://localhost:5180/api/addresses/<id> \
   -H "Content-Type: application/json" \
+  -H 'If-Match: "1"' \
   -d '{"firstName":"Max","lastName":"Mustermann","street":"Hauptstrasse","houseNumber":"1","postalCode":"10115","city":"Berlin","country":"DE"}'
 
-# einzelne Werte ändern (JSON Patch): nur wenn der Vorname noch "Max" ist, Ort ersetzen und E-Mail entfernen
+# einzelne Werte der Version 2 ändern (JSON Patch): nur wenn der Vorname noch "Max" ist, Ort ersetzen und E-Mail entfernen
 curl -i -X PATCH http://localhost:5180/api/addresses/<id> \
   -H "Content-Type: application/json-patch+json" \
+  -H 'If-Match: "2"' \
   -d '[{"op":"test","path":"/firstName","value":"Max"},{"op":"replace","path":"/city","value":"Hamburg"},{"op":"remove","path":"/email"}]'
 
-# Adresse löschen
-curl -i -X DELETE http://localhost:5180/api/addresses/<id>
+# Adresse löschen, egal in welcher Version
+curl -i -X DELETE http://localhost:5180/api/addresses/<id> -H 'If-Match: *'
 ```
 
 ## Tests und Coverage
@@ -125,7 +129,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 
 **Fachmodell**
 - `Address` hat keine öffentlichen Setter. Eine Adresse entsteht nur über `Address.Create(…)` und ändert sich nur über `address.Update(…)`.
-- Die Entity bereinigt ihre Eingaben selbst: Strings werden getrimmt, `Country` wird in Großbuchstaben umgewandelt, eine leere E-Mail wird zu `null`. Die normalisierten Felder für die Suche und `CreatedAt`/`UpdatedAt` pflegt sie automatisch.
+- Die Entity bereinigt ihre Eingaben selbst: Strings werden getrimmt, `Country` wird in Großbuchstaben umgewandelt, eine leere E-Mail wird zu `null`. Die normalisierten Felder für die Suche, `CreatedAt`/`UpdatedAt` und die `Version` pflegt sie automatisch: `Create` setzt die Version auf 1, jedes `Update` erhöht sie um 1, auch wenn sich kein Wert ändert.
 - Die Maximallängen stehen zentral in `AddressConstraints`. Sie sind die einzige Quelle für Validierung, EF-Konfiguration und OpenAPI.
 - Schutzprüfungen (leeres Pflichtfeld, Maximallänge überschritten) werfen eine `ArgumentException`. Da Eingaben vorher validiert werden, ist eine Verletzung ein Programmierfehler und kein erwartbarer Fall. Schlägt ein Update fehl, bleibt die Adresse unverändert.
 - Zeitangaben kommen ausschließlich aus dem `TimeProvider`, auch der Zeitanteil der Id (`Guid.CreateVersion7(now)`).
@@ -154,7 +158,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 
 **Geschäftslogik**
 - `AddressService` (`IAddressService`) liegt zwischen Controller und Repository und kennt weder HTTP noch EF Core. Er erwartet bereinigte und validierte Requests; eine ungültige Eingabe ist ein Programmierfehler und führt zur `ArgumentException` der Entity.
-- „Nicht gefunden“ ist ein erwartbarer Fall und wird über den Rückgabewert gemeldet: `GetByIdAsync` und `UpdateAsync` liefern `null`, `DeleteAsync` liefert `false`.
+- „Nicht gefunden“ und „Version passt nicht“ sind erwartbare Fälle und werden über den Rückgabewert gemeldet: `GetByIdAsync` liefert `null`, `UpdateAsync` ein `AddressChangeResult` (Status und bei Erfolg die geänderte Adresse), `DeleteAsync` einen `ChangeStatus` (`Success`, `NotFound`, `VersionMismatch`). Die beiden kleinen Typen in `Core.Addresses/Results` kommen ohne Bibliothek aus.
 - Die Listenfilter werden vor der Suche mit `ITextNormalizer` normalisiert. Fehlende oder leere Filter werden ignoriert.
 - Der Service wird über `AddCoreAddresses()` als Scoped registriert, passend zum Repository. Repository, `ITextNormalizer`, `TimeProvider` und Logging registrieren `AddData()`, `AddDomain()` und der Host.
 
@@ -177,17 +181,20 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Die Parameter sind einzeln an der Action deklariert (nicht als `[FromQuery] AddressListQuery`). So heißen sie im OpenAPI-Dokument `city` und `postalCode`, und `Core.Addresses` braucht keine ASP.NET-Attribute. Die Reihenfolge der Liste ist noch nicht festgelegt.
 - `PUT /api/addresses/{id}` ist ein vollständiges Update: Alle Werte werden ersetzt, Bereinigung und Validierung laufen wie beim Anlegen. Fehlt die E-Mail oder ist sie leer, wird eine vorhandene E-Mail entfernt. `Id` und `CreatedAt` bleiben erhalten, `UpdatedAt` wird neu gesetzt. Die Antwort ist **200** mit der geänderten Adresse, ohne `Location`-Header.
 - `PUT` legt keine Adresse an: Ids vergibt der Server (GUID Version 7), eine unbekannte Id liefert **404**.
-- Prüfreihenfolge bei `PUT`: **415** (kein JSON) → **400** (ungültiges JSON) → **400** (ungültige Werte) → **404** (unbekannte Id). Der Body wird also vor der Id geprüft; ein ungültiger Body ergibt auch bei unbekannter Id **400**. 415 und Fehler im JSON entstehen in ASP.NET Core ohnehin vor der Action, und die Validierung braucht keinen Datenbankzugriff. Daran ist nicht erkennbar, ob eine Adresse existiert.
+- Prüfreihenfolge bei `PUT`: **415** (kein JSON) → **404** (unbekannte Id) → **428**/**400**/**412** (`If-Match`, siehe **Optimistic Concurrency**) → **400** (ungültiges JSON) → **400** (ungültige Werte). Die Id wird also vor dem Body geprüft; ein ungültiger Body ergibt bei unbekannter Id **404**.
+- Der automatische Model-State-Filter von `[ApiController]` ist abgeschaltet (`SuppressModelStateInvalidFilter`), denn er beantwortet ungültiges JSON mit **400**, bevor die Action läuft, also auch vor **404**, **428** und **412**. Die Actions prüfen den Model State deshalb selbst: `POST` sofort, `PUT` und `PATCH` erst nach den Vorbedingungen. Die Antwort ist dieselbe `ValidationProblemDetails` wie vorher.
 - `DELETE /api/addresses/{id}` entfernt die Adresse und antwortet mit **204** ohne Body. Danach liefern `GET`, `PUT`, `PATCH` und erneutes `DELETE` für diese Id **404** mit denselben Problem Details wie für eine nie vergebene Id.
 
 **OpenAPI**
 - Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
 - Die `operationId`s kommen aus den Routennamen der Actions: `CreateAddress`, `GetAddressById`, `ListAddresses`, `UpdateAddress`, `PatchAddress` und `DeleteAddress`. Die Antwort **204** von `DELETE` hat keinen Body und deshalb kein Schema.
 - `LocationHeaderOperationTransformer` beschreibt den `Location`-Header jeder 201-Antwort, denn Attribute können keine Header beschreiben.
-- `AddressSchemaTransformer` ergänzt die Schemas der Requests und von `AddressResponse` aus `AddressConstraints`: `required`, `minLength`/`maxLength`, `pattern` `^[A-Z]{2}$` für `country` sowie `format: email` und `null` als erlaubten Typ für `email`. Die Schemas beschreiben bereinigte Werte; die API nimmt auch Werte mit Leerzeichen am Rand oder `country` in Kleinbuchstaben an.
+- `ETagHeaderOperationTransformer` beschreibt den Pflicht-Header `ETag` (`pattern` `^"[1-9][0-9]*"$`) jeder Antwort, deren Body eine einzelne `AddressResponse` ist: `GET` by Id, `POST`, `PUT` und `PATCH`. Die Liste hat keinen `ETag`.
+- `IfMatchHeaderOperationTransformer` beschreibt den Pflicht-Parameter `If-Match` im Header jeder Operation mit einer Antwort **428**, also von `PUT`, `PATCH` und `DELETE`. Das `pattern` beschreibt die Syntax nach RFC 9110: `*` oder eine kommagetrennte Liste aus `"…"` und `W/"…"`. Ein Test stellt sicher, dass es für alle geprüften Werte genau dann passt, wenn die Auswertung zur Laufzeit den Header als gültig erkennt. Der Header wird nicht als Action-Parameter gebunden, weil ein Binding-Fehler die Prüfreihenfolge bräche.
+- `AddressSchemaTransformer` ergänzt die Schemas der Requests und von `AddressResponse` aus `AddressConstraints`: `required`, `minLength`/`maxLength`, `pattern` `^[A-Z]{2}$` für `country` sowie `format: email` und `null` als erlaubten Typ für `email`. `version` ist eine Ganzzahl (`int64`) ab 1; ohne den Transformer wäre sie auch als String beschrieben, weil die JSON-Optionen Zahlen aus Strings lesen dürfen. Die Schemas beschreiben bereinigte Werte; die API nimmt auch Werte mit Leerzeichen am Rand oder `country` in Kleinbuchstaben an.
 - Für jedes JSON-Patch-Dokument erzeugt ASP.NET Core dasselbe generische Schema `JsonPatchDocument`: ein Array von Operationen (`oneOf` aus `add`/`replace`/`test`, `move`/`copy` und `remove`), in dem `path` und `from` beliebige Strings und `value` beliebige Werte sind. `AddressPatchDocumentSchemaTransformer` schränkt `path` und `from` auf die JSON Pointer der acht Felder ein (`enum`) und `value` auf `string` oder `null`. Die Pointer kommen aus den JSON-Optionen, also aus derselben Quelle wie bei der Prüfung zur Laufzeit. Die Regeln der einzelnen Felder (Länge, Pattern, Format) gelten für die geänderte Adresse und stehen im Schema `UpdateAddressRequest`. Pro Feld als eigenes `oneOf` wären sie zwar ausdrückbar, das Schema würde dadurch aber unlesbar.
 - `ProblemDetailsSchemaTransformer` beschreibt `ProblemDetails` und `ValidationProblemDetails` so, wie die API sie schreibt: `type`, `title`, `status` und `traceId` (bei Validierungsfehlern zusätzlich `errors`) sind immer enthalten, `status` ist eine Ganzzahl zwischen 100 und 599, `type` und `instance` sind URI-Referenzen. Ohne den Transformer fehlte `traceId`, und `status` wäre auch als String beschrieben, weil die JSON-Optionen Zahlen aus Strings lesen dürfen.
-- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die sechs Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`), keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
+- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die sechs Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`, `ETag`) und den übrigen Antworten mit einer Adresse (`ETag`), **428** genau bei `PUT`, `PATCH` und `DELETE`, keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
 - Fallstrick im XML-Kommentar-Generator von .NET 10: Er schreibt die Beschreibung jedes `<param>`, der kein Operation-Parameter ist, an den Request-Body, also auch die des `CancellationToken`. Der Body-Parameter wird deshalb als letzter dokumentiert.
 
 **Fehlerbehandlung**
@@ -200,21 +207,25 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Gelöschte Adressen liefern 404 wie unbekannte. Es ist nicht erkennbar, ob ein Datensatz existiert hat.
 - `Country` ist ein ISO-3166-1-Alpha-2-Code (z. B. `DE`).
 
-**Concurrency**
-- Die Version ist eine fortlaufende Zahl (`long`). Sie verrät die Anzahl der Änderungen eines Datensatzes; das ist bewusst in Kauf genommen, da der Datensatz ohnehin gelesen werden darf.
-- Die Version wird als strong ETag ausgeliefert. `If-Match` vergleicht laut RFC 9110 immer strong, weak ETags passen daher nie.
-- `If-Match` ist bei PUT, PATCH und DELETE Pflicht (428, RFC 6585). `If-Match: *` ist RFC-konform erlaubt und ändert ohne Versionsprüfung.
-- Prüfreihenfolge: 404 → 428 → 412 → 400.
-- EF Core InMemory erzeugt keine Version automatisch, sie wird in der Domain hochgezählt.
+**Optimistic Concurrency**
+- Schutz vor Lost Updates: Jede Adresse hat eine `Version` (`long`), die mit 1 beginnt und bei jeder Änderung in der Domain um 1 steigt. EF Core InMemory erzeugt keine Version automatisch (keine Row-Version). Die Version verrät die Anzahl der Änderungen eines Datensatzes; das ist bewusst in Kauf genommen, da der Datensatz ohnehin gelesen werden darf.
+- Die Version steht als `version` in jeder `AddressResponse`, auch in der Liste, damit Clients ohne zusätzliches `GET` ändern können. In keinem Request-DTO steht sie; ein Client kann sie also nicht setzen.
+- `GET` by Id, `POST`, `PUT` und `PATCH` liefern die Version als strong ETag im Header `ETag`, z. B. `"3"`. Die Liste hat keinen `ETag`, weil sie mehrere Versionen enthält.
+- `If-Match` ist bei `PUT`, `PATCH` und `DELETE` Pflicht. Erlaubt sind eine kommagetrennte Liste von ETags (auch über mehrere Header-Zeilen) oder `*`. Gelesen und verglichen wird mit `EntityTagHeaderValue` aus ASP.NET Core. `If-Match` vergleicht laut RFC 9110 immer strong, ein weak ETag wie `W/"3"` passt daher nie. `*` bedeutet „ändern, wenn vorhanden“ ohne Versionsprüfung durch den Client.
+- Prüfreihenfolge nach RFC 9110 (Abschnitt 13.2): **404** (unbekannte Id; Vorbedingungen werden ignoriert, wenn die Antwort ohne sie kein Erfolg wäre) → **428** (`If-Match` fehlt, RFC 6585) → **400** (`If-Match` ist leer, kein ETag oder enthält `*` neben anderen Werten; der Fehler steht unter dem Schlüssel `If-Match`) → **412** (kein ETag passt zur aktuellen Version) → **400** (Body ungültig) → bei `PATCH` **409** (`test` fehlgeschlagen). **415** kommt wie bisher vor allem anderen, weil `[Consumes]` vor der Action greift. Fehlerantworten haben keinen `ETag`.
+- Für **428** kennt MVC keine Standardwerte; `Program.cs` ergänzt `type` (RFC 6585, Abschnitt 3) und `title` in `ClientErrorMapping`, damit auch diese Problem Details vollständig sind.
+- Der Controller prüft `If-Match` gegen die gerade geladene Version. Damit dazwischen keine Änderung verloren geht, prüft zusätzlich die Datenbank: `Version` ist in der EF-Konfiguration ein Concurrency-Token. Das Repository setzt beim Speichern den Original-Wert auf die vom Client erwartete Version, EF Core speichert also nur, wenn die gespeicherte Version noch dieselbe ist. Bei `*` bleibt der Original-Wert die geladene Version, sodass auch dann eine gleichzeitige Änderung erkannt wird.
+- Die `DbUpdateConcurrencyException`, mit der EF Core einen fehlgeschlagenen Vergleich meldet, fängt das Repository ab und gibt sie als `ChangeStatus` zurück: `NotFound`, wenn die Adresse inzwischen gelöscht wurde (`GetDatabaseValuesAsync` liefert `null`), sonst `VersionMismatch`. Der Eintrag wird danach nicht mehr verfolgt. Die API antwortet mit **404** bzw. **412**.
+- `ConcurrentAddressChangeTests` beweist, dass EF InMemory den Token prüft: Zwei Requests mit derselben Version bestehen alle Prüfungen des Controllers und warten dann im `RendezvousAddressRepository` aufeinander, bevor beide speichern. Genau einer ist erfolgreich, der andere bekommt **412** (bei zwei `DELETE` **404**). Die Repository-Tests zeigen dasselbe mit zwei `DbContext`-Instanzen.
 
 **PATCH**
 - JSON Patch (RFC 6902) statt JSON Merge Patch: eindeutiges Format für generierte Clients und offizielle Unterstützung mit System.Text.Json.
-- Ablauf: Patch-Dokument prüfen → aktuelle Adresse laden → als `UpdateAddressRequest` abbilden (`ToUpdateRequest()`) → Operationen anwenden → bereinigen, validieren und speichern auf demselben Weg wie bei `PUT`. Es gibt keine eigene Update-Logik für `PATCH`. Die Operationen ändern nur diese Kopie, deshalb wirken alle zusammen oder keine.
+- Ablauf: aktuelle Adresse laden → `If-Match` prüfen → Patch-Dokument prüfen → als `UpdateAddressRequest` abbilden (`ToUpdateRequest()`) → Operationen anwenden → bereinigen, validieren und speichern auf demselben Weg wie bei `PUT`. Es gibt keine eigene Update-Logik für `PATCH`. Die Operationen ändern nur diese Kopie, deshalb wirken alle zusammen oder keine.
 - Unterstützt werden alle sechs Operationen: `add`, `remove`, `replace`, `move`, `copy` und `test`. Da eine Adresse feste Felder hat, setzen `add` und `replace` beide den Wert eines Felds, und `remove` setzt ihn auf `null`. Bei Pflichtfeldern führt das zu **400** mit dem Feldfehler, bei `email` wird die E-Mail entfernt.
 - Die Operationen werden vor dem Anwenden streng geprüft (`AddressPatchDocumentExtensions.ValidateOperations`), denn die Bibliothek ist an mehreren Stellen nachsichtig oder fehlerhaft: Ein fehlendes `op` behandelt sie als `add`, Groß-/Kleinschreibung bei `op` und in Pfaden ignoriert sie, ein fehlendes `path` oder `from` führt zu einer `ArgumentNullException` (also **500**), und bei `test` unterscheidet sie einen unbekannten Pfad nicht von einem abweichenden Wert. Erlaubt sind deshalb nur die sechs Operationen in Kleinbuchstaben, als Pfade nur die JSON Pointer der acht Felder mit exaktem Namen (`/firstName`, nicht `/FirstName`, RFC 6901 ist case-sensitiv) und als `value` nur ein String oder `null`. Alle Fehler kommen zusammen als **400**, jeweils unter dem JSON-Pfad im Patch-Dokument (`$[0].path`).
 - Ein fehlendes `value` kann die Bibliothek nicht von `null` unterscheiden; es wird wie `null` behandelt. Das OpenAPI-Schema verlangt `value` trotzdem, wie RFC 6902.
 - `test` vergleicht exakt, also ohne Bereinigung und mit Groß-/Kleinschreibung. Schlägt ein Test fehl, antwortet die API mit **409** (RFC 5789: Der Patch passt nicht zum Zustand der Ressource), und `detail` nennt Index und Pfad der Operation. Die Bibliothek wendet nach einem fehlgeschlagenen Test die weiteren Operationen trotzdem an. Das schadet nicht, weil die Kopie dann verworfen wird.
-- Prüfreihenfolge: **415** (kein JSON Patch) → **400** (ungültiges JSON) → **400** (ungültige Operationen) → **404** (unbekannte Id) → **409** (Test fehlgeschlagen) → **400** (ungültige Werte). Wie bei `PUT` wird der Body vor der Id geprüft, soweit das ohne die Adresse möglich ist.
+- Prüfreihenfolge: **415** (kein JSON Patch) → **404** (unbekannte Id) → **428**/**400**/**412** (`If-Match`) → **400** (ungültiges JSON) → **400** (ungültige Operationen) → **409** (Test fehlgeschlagen) → **400** (ungültige Werte).
 - Ein leeres Patch-Dokument `[]` ist gültig und wirkt wie `PUT` mit den aktuellen Werten; `UpdatedAt` wird neu gesetzt.
 
 **Caching**
@@ -222,7 +233,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 
 **Logging**
 - Strukturiertes Logging über `ILogger` mit Message-Templates. Die Log-Methoden erzeugt der Source-Generator `[LoggerMessage]`: Die Templates werden beim Build geprüft, und die Argumente werden nur verarbeitet, wenn das Level aktiv ist.
-- Geloggt werden nur Ids, Anzahlen und normalisierte Filter, keine personenbezogenen Daten wie Namen oder E-Mail-Adressen. Änderungen (Anlegen, Ändern, Löschen) laufen auf `Information`, Lesezugriffe und „nicht gefunden“ auf `Debug`.
+- Geloggt werden nur Ids, Versionen, Anzahlen und normalisierte Filter, keine personenbezogenen Daten wie Namen oder E-Mail-Adressen. Änderungen (Anlegen, Ändern, Löschen) und abgelehnte Änderungen wegen einer anderen Version laufen auf `Information`, Lesezugriffe und „nicht gefunden“ auf `Debug`.
 - Serilog schreibt aktuell nur in die Konsole: in `Development` als lesbarer Text inklusive der strukturierten Properties, in allen anderen Umgebungen als kompaktes JSON (`CompactJsonFormatter`), das Log-Aggregatoren direkt verarbeiten können. Die Level stehen im Abschnitt `Serilog:MinimumLevel` der Konfiguration; `Microsoft.AspNetCore` und `Microsoft.EntityFrameworkCore` laufen auf `Warning`, in `Development` die eigenen Namespaces auf `Debug`.
 - Das Request-Logging von Serilog schreibt pro Anfrage einen Eintrag mit Methode, Pfad, Status und Dauer (500 und mehr auf `Error`). Es steht ganz außen in der Pipeline und sieht deshalb den endgültigen Status.
 - Der statische Serilog-Logger bleibt unberührt, damit sich mehrere Hosts in einem Prozess (z. B. in Tests) keinen Logger teilen. Zusätzliche Sinks lassen sich auch per Dependency Injection registrieren (`ReadFrom.Services`); die Integrationstests nutzen das, um Log-Einträge zu prüfen.
