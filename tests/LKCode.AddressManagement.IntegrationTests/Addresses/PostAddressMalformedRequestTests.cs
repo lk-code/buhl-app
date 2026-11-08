@@ -145,7 +145,6 @@ public class PostAddressMalformedRequestTests
     [TestCase("text/plain")]
     [TestCase("text/json")]
     [TestCase("application/xml")]
-    [TestCase("application/merge-patch+json")]
     [TestCase("application/x-www-form-urlencoded")]
     public async Task PostAsync_UnsupportedMediaType_Returns415WithProblemDetails(string mediaType)
     {

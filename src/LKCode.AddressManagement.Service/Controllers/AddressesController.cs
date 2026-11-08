@@ -1,3 +1,4 @@
+using System.Net.Mime;
 using System.Text.Json;
 using FluentValidation;
 using FluentValidation.Results;
@@ -66,12 +67,19 @@ public sealed class AddressesController(
     /// <c>400 Bad Request</c> with all validation errors.
     /// </returns>
     /// <remarks>
+    /// <para>
     /// The values are sanitized before they are validated: they are trimmed, the country is converted to uppercase
     /// and a blank email address is treated as missing. The keys of the validation errors are the names of the
     /// fields in the JSON body, e.g. <c>firstName</c>.
+    /// </para>
+    /// <para>
+    /// A body that is no valid JSON object of an address results in <c>400 Bad Request</c> before this method is
+    /// called; a body that is not <c>application/json</c> results in <c>415 Unsupported Media Type</c>.
+    /// </para>
     /// </remarks>
     /// <exception cref="ArgumentNullException"><paramref name="request"/> is <see langword="null"/>.</exception>
     [HttpPost]
+    [Consumes(MediaTypeNames.Application.Json)]
     public async Task<ActionResult<AddressResponse>> CreateAsync(
         CreateAddressRequest request,
         CancellationToken cancellationToken)
