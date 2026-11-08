@@ -47,6 +47,8 @@ public class AddressConfigurationTests
             nameof(Address.CreatedAt),
             nameof(Address.UpdatedAt),
             nameof(Address.Version),
+            nameof(Address.IsDeleted),
+            nameof(Address.DeletedAt),
         ];
 
         // Act

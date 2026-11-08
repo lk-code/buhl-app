@@ -90,6 +90,16 @@ public sealed class Address
     public long Version { get; private set; }
 
     /// <summary>
+    /// Gets a value indicating whether the address is deleted.
+    /// </summary>
+    public bool IsDeleted { get; private set; }
+
+    /// <summary>
+    /// Gets the point in time the address was deleted, or <see langword="null"/> if it is not deleted.
+    /// </summary>
+    public DateTimeOffset? DeletedAt { get; private set; }
+
+    /// <summary>
     /// Creates a new address.
     /// </summary>
     /// <param name="firstName">The first name.</param>
@@ -206,6 +216,12 @@ public sealed class Address
             timeProvider.GetUtcNow());
         Version++;
     }
+
+    /// <summary>
+    /// Marks the address as deleted.
+    /// </summary>
+    /// <param name="timeProvider">The provider of the current time.</param>
+    public void Delete(TimeProvider timeProvider) => throw new NotImplementedException();
 
     /// <summary>
     /// Checks and cleans all values first and assigns them afterwards, so that the address stays unchanged if a value

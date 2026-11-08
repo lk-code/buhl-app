@@ -94,6 +94,20 @@ public class AddressTests
     }
 
     [Test]
+    public void Create_ValidInput_IsNotDeleted()
+    {
+        // Arrange
+        AddressInput input = AddressInput.Valid;
+
+        // Act
+        Address address = Create(input);
+
+        // Assert
+        address.IsDeleted.Should().BeFalse();
+        address.DeletedAt.Should().BeNull();
+    }
+
+    [Test]
     public void Create_ValidInput_SetsNormalizedFieldsFromTrimmedValues()
     {
         // Arrange
@@ -517,23 +531,7 @@ public class AddressTests
     {
         // Arrange
         Address address = Create(AddressInput.Valid);
-        var expected = new
-        {
-            address.Id,
-            address.FirstName,
-            address.LastName,
-            address.Street,
-            address.HouseNumber,
-            address.PostalCode,
-            address.City,
-            address.Country,
-            address.Email,
-            address.NormalizedCity,
-            address.NormalizedPostalCode,
-            address.CreatedAt,
-            address.UpdatedAt,
-            address.Version,
-        };
+        var expected = AddressState.From(address);
         _timeProvider.Advance(TimeSpan.FromHours(2));
         AddressInput input = field.With(AddressInput.Changed, field.ValueExceedingMaxLength);
 
@@ -542,7 +540,24 @@ public class AddressTests
 
         // Assert
         act.Should().Throw<ArgumentException>();
-        address.Should().BeEquivalentTo(expected);
+        AddressState.From(address).Should().Be(expected);
+    }
+
+    [Test]
+    public void Update_DeletedAddress_ThrowsInvalidOperationExceptionAndLeavesAddressUnchanged()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        address.Delete(_timeProvider);
+        var expected = AddressState.From(address);
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+
+        // Act
+        Action act = () => Update(address, AddressInput.Changed);
+
+        // Assert
+        act.Should().ThrowExactly<InvalidOperationException>();
+        AddressState.From(address).Should().Be(expected);
     }
 
     [Test]
@@ -593,6 +608,107 @@ public class AddressTests
         act.Should().ThrowExactly<ArgumentNullException>().WithParameterName("timeProvider");
     }
 
+    [Test]
+    public void Delete_NotDeleted_MarksAddressAsDeletedAtCurrentTime()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+
+        // Act
+        address.Delete(_timeProvider);
+
+        // Assert
+        address.IsDeleted.Should().BeTrue();
+        address.DeletedAt.Should().Be(_startTime.AddHours(2));
+    }
+
+    [Test]
+    public void Delete_NotDeleted_SetsUpdatedAtToDeletionTime()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+
+        // Act
+        address.Delete(_timeProvider);
+
+        // Assert
+        address.UpdatedAt.Should().Be(_startTime.AddHours(2));
+    }
+
+    [TestCase(0, 2)]
+    [TestCase(1, 3)]
+    [TestCase(4, 6)]
+    public void Delete_NotDeleted_IncrementsVersionByOne(int updates, long expectedVersion)
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        for (int update = 0; update < updates; update++)
+        {
+            Update(address, update % 2 == 0 ? AddressInput.Changed : AddressInput.Valid);
+        }
+
+        // Act
+        address.Delete(_timeProvider);
+
+        // Assert
+        address.Version.Should().Be(expectedVersion);
+    }
+
+    [Test]
+    public void Delete_NotDeleted_KeepsIdValuesNormalizedFieldsAndCreatedAt()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        var before = AddressState.From(address);
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+
+        // Act
+        address.Delete(_timeProvider);
+
+        // Assert
+        AddressState.From(address).Should().Be(before with
+        {
+            UpdatedAt = _startTime.AddHours(2),
+            Version = 2,
+            IsDeleted = true,
+            DeletedAt = _startTime.AddHours(2),
+        });
+    }
+
+    [Test]
+    public void Delete_AlreadyDeleted_ThrowsInvalidOperationExceptionAndLeavesAddressUnchanged()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        address.Delete(_timeProvider);
+        var expected = AddressState.From(address);
+        _timeProvider.Advance(TimeSpan.FromHours(2));
+
+        // Act
+        Action act = () => address.Delete(_timeProvider);
+
+        // Assert
+        act.Should().ThrowExactly<InvalidOperationException>();
+        AddressState.From(address).Should().Be(expected);
+    }
+
+    [Test]
+    public void Delete_NullTimeProvider_ThrowsArgumentNullExceptionAndLeavesAddressUnchanged()
+    {
+        // Arrange
+        Address address = Create(AddressInput.Valid);
+        var expected = AddressState.From(address);
+
+        // Act
+        Action act = () => address.Delete(null!);
+
+        // Assert
+        act.Should().ThrowExactly<ArgumentNullException>().WithParameterName("timeProvider");
+        AddressState.From(address).Should().Be(expected);
+    }
+
     private static IEnumerable<TestCaseData> BlankRequiredFieldCases() =>
         from field in AddressField.Required
         from value in _blankValues
@@ -631,4 +747,30 @@ public class AddressTests
         input.Email,
         _textNormalizer,
         _timeProvider);
+
+    /// <summary>
+    /// All values of an address, to compare its state before and after an operation.
+    /// </summary>
+    private sealed record AddressState(
+        Guid Id,
+        AddressInput Input,
+        string NormalizedCity,
+        string NormalizedPostalCode,
+        DateTimeOffset CreatedAt,
+        DateTimeOffset UpdatedAt,
+        long Version,
+        bool IsDeleted,
+        DateTimeOffset? DeletedAt)
+    {
+        public static AddressState From(Address address) => new(
+            address.Id,
+            AddressInput.From(address),
+            address.NormalizedCity,
+            address.NormalizedPostalCode,
+            address.CreatedAt,
+            address.UpdatedAt,
+            address.Version,
+            address.IsDeleted,
+            address.DeletedAt);
+    }
 }
