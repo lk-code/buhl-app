@@ -59,16 +59,6 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
         return SaveWithExpectedVersionAsync(entry, expectedVersion, cancellationToken);
     }
 
-    /// <inheritdoc />
-    public Task<ChangeStatus> DeleteAsync(Address address, long? expectedVersion, CancellationToken cancellationToken)
-    {
-        ArgumentNullException.ThrowIfNull(address);
-
-        EntityEntry<Address> entry = _dbContext.Addresses.Remove(address);
-
-        return SaveWithExpectedVersionAsync(entry, expectedVersion, cancellationToken);
-    }
-
     /// <summary>
     /// Saves the change of the <paramref name="entry"/> if the stored version equals the expected version.
     /// </summary>
@@ -76,7 +66,8 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
     /// <see cref="Address.Version"/> is a concurrency token: EF Core saves the change only if the stored version equals
     /// the original value of the entry. Setting the original value to the expected version makes EF Core check the
     /// version of the client instead of the loaded one. A failed check is only reported through a
-    /// <see cref="DbUpdateConcurrencyException"/>; it is an expected outcome and is returned as status.
+    /// <see cref="DbUpdateConcurrencyException"/>; it is an expected outcome and is returned as status. An address
+    /// that was deleted in the meantime is reported as not found, like one that was never stored.
     /// </remarks>
     private async Task<ChangeStatus> SaveWithExpectedVersionAsync(
         EntityEntry<Address> entry,
@@ -101,7 +92,10 @@ public sealed class AddressRepository(AddressDbContext dbContext) : IAddressRepo
             // The change was not saved and must not be saved by a later call of SaveChanges.
             entry.State = EntityState.Detached;
 
-            return storedValues is null ? ChangeStatus.NotFound : ChangeStatus.VersionMismatch;
+            // The stored values are read without the query filter, so a deleted address is found, too.
+            return storedValues is null || storedValues.GetValue<bool>(nameof(Address.IsDeleted))
+                ? ChangeStatus.NotFound
+                : ChangeStatus.VersionMismatch;
         }
     }
 }

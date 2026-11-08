@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using AwesomeAssertions;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Domain.Addresses;
 using LKCode.AddressManagement.IntegrationTests.Fakes;
 using Microsoft.AspNetCore.Mvc.Testing;
 
@@ -110,6 +111,7 @@ public class ConcurrentAddressChangeTests
             new[] { first.StatusCode, second.StatusCode }
                 .Should().BeEquivalentTo([HttpStatusCode.NoContent, HttpStatusCode.NotFound]);
             (await _factory.FindAddressAsync(created.Id)).Should().BeNull();
+            await AssertStoredAsync(created.Id, isDeleted: true);
         }
     }
 
@@ -134,14 +136,28 @@ public class ConcurrentAddressChangeTests
             {
                 delete.StatusCode.Should().Be(HttpStatusCode.PreconditionFailed);
                 stored.Should().Be(await put.Content.ReadFromJsonAsync<AddressResponse>());
+                await AssertStoredAsync(created.Id, isDeleted: false);
             }
             else
             {
                 put.StatusCode.Should().Be(HttpStatusCode.NotFound);
                 delete.StatusCode.Should().Be(HttpStatusCode.NoContent);
                 stored.Should().BeNull();
+                await AssertStoredAsync(created.Id, isDeleted: true);
             }
         }
+    }
+
+    /// <summary>
+    /// Asserts that the address with the <paramref name="id"/> is still stored in the version after exactly one
+    /// change, deleted or not.
+    /// </summary>
+    private async Task AssertStoredAsync(Guid id, bool isDeleted)
+    {
+        Address? stored = await _factory.FindStoredAddressAsync(id);
+        stored.Should().NotBeNull();
+        stored!.IsDeleted.Should().Be(isDeleted);
+        stored.Version.Should().Be(2);
     }
 
     /// <summary>

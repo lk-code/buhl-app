@@ -2,14 +2,19 @@ using AwesomeAssertions;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Data.Configurations;
 using LKCode.AddressManagement.Domain.Addresses;
+using LKCode.AddressManagement.Domain.Normalizers;
+using LKCode.AddressManagement.UnitTests.Domain.Addresses;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.Extensions.Time.Testing;
 
 namespace LKCode.AddressManagement.UnitTests.Data.Configurations;
 
 public class AddressConfigurationTests
 {
+    private readonly TextNormalizer _textNormalizer = new();
+    private readonly FakeTimeProvider _timeProvider = new(new DateTimeOffset(2026, 3, 14, 9, 26, 53, TimeSpan.Zero));
     private AddressDbContext _context = null!;
 
     [SetUp]
@@ -47,6 +52,8 @@ public class AddressConfigurationTests
             nameof(Address.CreatedAt),
             nameof(Address.UpdatedAt),
             nameof(Address.Version),
+            nameof(Address.IsDeleted),
+            nameof(Address.DeletedAt),
         ];
 
         // Act
@@ -96,6 +103,7 @@ public class AddressConfigurationTests
     [TestCase(nameof(Address.CreatedAt))]
     [TestCase(nameof(Address.UpdatedAt))]
     [TestCase(nameof(Address.Version))]
+    [TestCase(nameof(Address.IsDeleted))]
     public void Configure_RequiredProperty_IsNotNullable(string propertyName)
     {
         // Arrange
@@ -137,17 +145,37 @@ public class AddressConfigurationTests
         concurrencyTokens.Should().Equal(nameof(Address.Version));
     }
 
-    [Test]
-    public void Configure_Email_IsNullable()
+    [TestCase(nameof(Address.Email))]
+    [TestCase(nameof(Address.DeletedAt))]
+    public void Configure_OptionalProperty_IsNullable(string propertyName)
     {
         // Arrange
         IEntityType entityType = GetAddressEntityType();
 
         // Act
-        IProperty property = GetProperty(entityType, nameof(Address.Email));
+        IProperty property = GetProperty(entityType, propertyName);
 
         // Assert
         property.IsNullable.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task Configure_Address_HasQueryFilterExcludingDeletedAddresses()
+    {
+        // Arrange
+        Address active = CreateAddress();
+        Address deleted = CreateAddress();
+        deleted.Delete(_timeProvider);
+        _context.Addresses.AddRange(active, deleted);
+        await _context.SaveChangesAsync();
+
+        // Act
+        List<Address> addresses = await _context.Addresses.AsNoTracking().ToListAsync();
+
+        // Assert
+        addresses.Select(address => address.Id).Should().Equal(active.Id);
+        List<Address> storedAddresses = await _context.Addresses.AsNoTracking().IgnoreQueryFilters().ToListAsync();
+        storedAddresses.Select(address => address.Id).Should().BeEquivalentTo([active.Id, deleted.Id]);
     }
 
     [TestCase(nameof(Address.FirstName), AddressConstraints.FirstNameMaxLength)]
@@ -225,6 +253,23 @@ public class AddressConfigurationTests
 
         // Assert
         act.Should().Throw<ArgumentNullException>().WithParameterName("builder");
+    }
+
+    private Address CreateAddress()
+    {
+        AddressInput input = AddressInput.Valid;
+
+        return Address.Create(
+            input.FirstName,
+            input.LastName,
+            input.Street,
+            input.HouseNumber,
+            input.PostalCode,
+            input.City,
+            input.Country,
+            input.Email,
+            _textNormalizer,
+            _timeProvider);
     }
 
     private IEntityType GetAddressEntityType()

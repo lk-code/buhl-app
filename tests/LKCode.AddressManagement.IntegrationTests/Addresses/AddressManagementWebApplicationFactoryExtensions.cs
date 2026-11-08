@@ -1,12 +1,15 @@
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Core.Addresses.Dtos;
+using LKCode.AddressManagement.Data;
+using LKCode.AddressManagement.Domain.Addresses;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace LKCode.AddressManagement.IntegrationTests.Addresses;
 
 /// <summary>
-/// Reads and stores addresses directly through the <see cref="IAddressService"/> of a host, bypassing HTTP.
+/// Reads and stores addresses directly through the services of a host, bypassing HTTP.
 /// </summary>
 public static class AddressManagementWebApplicationFactoryExtensions
 {
@@ -43,5 +46,23 @@ public static class AddressManagementWebApplicationFactoryExtensions
         IAddressService addressService = scope.ServiceProvider.GetRequiredService<IAddressService>();
 
         return await addressService.GetListAsync(new AddressListQuery(null, null), CancellationToken.None);
+    }
+
+    /// <summary>
+    /// Reads the stored address with the <paramref name="id"/> directly from the database, including a deleted one.
+    /// </summary>
+    public static async Task<Address?> FindStoredAddressAsync(
+        this WebApplicationFactory<Program> factory,
+        Guid id)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        await using AsyncServiceScope scope = factory.Services.CreateAsyncScope();
+        AddressDbContext dbContext = scope.ServiceProvider.GetRequiredService<AddressDbContext>();
+
+        return await dbContext.Addresses
+            .AsNoTracking()
+            .IgnoreQueryFilters()
+            .SingleOrDefaultAsync(address => address.Id == id);
     }
 }

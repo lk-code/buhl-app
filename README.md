@@ -128,8 +128,8 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 ## Designentscheidungen
 
 **Fachmodell**
-- `Address` hat keine öffentlichen Setter. Eine Adresse entsteht nur über `Address.Create(…)` und ändert sich nur über `address.Update(…)`.
-- Die Entity bereinigt ihre Eingaben selbst: Strings werden getrimmt, `Country` wird in Großbuchstaben umgewandelt, eine leere E-Mail wird zu `null`. Die normalisierten Felder für die Suche, `CreatedAt`/`UpdatedAt` und die `Version` pflegt sie automatisch: `Create` setzt die Version auf 1, jedes `Update` erhöht sie um 1, auch wenn sich kein Wert ändert.
+- `Address` hat keine öffentlichen Setter. Eine Adresse entsteht nur über `Address.Create(…)`, ändert sich nur über `address.Update(…)` und wird nur über `address.Delete(…)` gelöscht (siehe **Soft-Delete**).
+- Die Entity bereinigt ihre Eingaben selbst: Strings werden getrimmt, `Country` wird in Großbuchstaben umgewandelt, eine leere E-Mail wird zu `null`. Die normalisierten Felder für die Suche, `CreatedAt`/`UpdatedAt` und die `Version` pflegt sie automatisch: `Create` setzt die Version auf 1, jedes `Update` und das `Delete` erhöhen sie um 1, auch wenn sich kein Wert ändert.
 - Die Maximallängen stehen zentral in `AddressConstraints`. Sie sind die einzige Quelle für Validierung, EF-Konfiguration und OpenAPI.
 - Schutzprüfungen (leeres Pflichtfeld, Maximallänge überschritten) werfen eine `ArgumentException`. Da Eingaben vorher validiert werden, ist eine Verletzung ein Programmierfehler und kein erwartbarer Fall. Schlägt ein Update fehl, bleibt die Adresse unverändert.
 - Zeitangaben kommen ausschließlich aus dem `TimeProvider`, auch der Zeitanteil der Id (`Guid.CreateVersion7(now)`).
@@ -141,6 +141,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Der Datenbankname kommt aus der Konfiguration (`Data:DatabaseName`) und wird beim Start geprüft; ohne Namen startet die Anwendung nicht. So bekommt jeder Test eine eigene Datenbank.
 - Die Abbildung erfolgt ausschließlich per Fluent API (`AddressConfiguration`), die Maximallängen kommen aus `AddressConstraints`. `NormalizedPostalCode` ist nie länger als die PLZ, `NormalizedCity` hat dagegen keine Maximallänge, weil die Normalisierung Werte verlängern kann (z. B. ß→ss). Der InMemory-Provider erzwingt Längen nicht; die Konfiguration beschreibt das Modell trotzdem vollständig.
 - `GetByIdAsync` liefert eine verfolgte Entity, damit Änderungen über `UpdateAsync` gespeichert werden. Listenabfragen laufen ohne Change-Tracking.
+- Ein Global Query Filter (`!IsDeleted`) in `AddressConfiguration` blendet gelöschte Adressen aus allen Abfragen aus, auch aus `GetByIdAsync` und `ListAsync`. Nur die Tests lesen sie mit `IgnoreQueryFilters()`.
 
 **Suche**
 - Ort und PLZ werden zusätzlich normalisiert gespeichert. Die Suche ist eine Teilstring-Suche auf diesen Werten. „Köln“, „Koeln“ und „KOLN“ finden sich gegenseitig, auch Akzente und Sonderzeichen anderer Sprachen werden aufgelöst. Seltene Fehltreffer durch die Vereinfachung sind bewusst in Kauf genommen.
@@ -159,6 +160,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 **Geschäftslogik**
 - `AddressService` (`IAddressService`) liegt zwischen Controller und Repository und kennt weder HTTP noch EF Core. Er erwartet bereinigte und validierte Requests; eine ungültige Eingabe ist ein Programmierfehler und führt zur `ArgumentException` der Entity.
 - „Nicht gefunden“ und „Version passt nicht“ sind erwartbare Fälle und werden über den Rückgabewert gemeldet: `GetByIdAsync` liefert `null`, `UpdateAsync` ein `AddressChangeResult` (Status und bei Erfolg die geänderte Adresse), `DeleteAsync` einen `ChangeStatus` (`Success`, `NotFound`, `VersionMismatch`). Die beiden kleinen Typen in `Core.Addresses/Results` kommen ohne Bibliothek aus.
+- `DeleteAsync` markiert die geladene Adresse mit `address.Delete(…)` und speichert sie über `UpdateAsync` des Repositorys. Löschen ist also eine Änderung wie jede andere, mit derselben Versionsprüfung; ein eigenes `DeleteAsync` im Repository gibt es nicht.
 - Die Listenfilter werden vor der Suche mit `ITextNormalizer` normalisiert. Fehlende oder leere Filter werden ignoriert.
 - Der Service wird über `AddCoreAddresses()` als Scoped registriert, passend zum Repository. Repository, `ITextNormalizer`, `TimeProvider` und Logging registrieren `AddData()`, `AddDomain()` und der Host.
 
@@ -183,7 +185,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - `PUT` legt keine Adresse an: Ids vergibt der Server (GUID Version 7), eine unbekannte Id liefert **404**.
 - Prüfreihenfolge bei `PUT`: **415** (kein JSON) → **404** (unbekannte Id) → **428**/**400**/**412** (`If-Match`, siehe **Optimistic Concurrency**) → **400** (ungültiges JSON) → **400** (ungültige Werte). Die Id wird also vor dem Body geprüft; ein ungültiger Body ergibt bei unbekannter Id **404**.
 - Der automatische Model-State-Filter von `[ApiController]` ist abgeschaltet (`SuppressModelStateInvalidFilter`), denn er beantwortet ungültiges JSON mit **400**, bevor die Action läuft, also auch vor **404**, **428** und **412**. Die Actions prüfen den Model State deshalb selbst: `POST` sofort, `PUT` und `PATCH` erst nach den Vorbedingungen. Die Antwort ist dieselbe `ValidationProblemDetails` wie vorher.
-- `DELETE /api/addresses/{id}` entfernt die Adresse und antwortet mit **204** ohne Body. Danach liefern `GET`, `PUT`, `PATCH` und erneutes `DELETE` für diese Id **404** mit denselben Problem Details wie für eine nie vergebene Id.
+- `DELETE /api/addresses/{id}` markiert die Adresse als gelöscht (siehe **Soft-Delete**) und antwortet mit **204** ohne Body. Danach liefern `GET`, `PUT`, `PATCH` und erneutes `DELETE` für diese Id **404** mit denselben Problem Details wie für eine nie vergebene Id.
 
 **OpenAPI**
 - Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
@@ -215,8 +217,15 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Prüfreihenfolge nach RFC 9110 (Abschnitt 13.2): **404** (unbekannte Id; Vorbedingungen werden ignoriert, wenn die Antwort ohne sie kein Erfolg wäre) → **428** (`If-Match` fehlt, RFC 6585) → **400** (`If-Match` ist leer, kein ETag oder enthält `*` neben anderen Werten; der Fehler steht unter dem Schlüssel `If-Match`) → **412** (kein ETag passt zur aktuellen Version) → **400** (Body ungültig) → bei `PATCH` **409** (`test` fehlgeschlagen). **415** kommt wie bisher vor allem anderen, weil `[Consumes]` vor der Action greift. Fehlerantworten haben keinen `ETag`.
 - Für **428** kennt MVC keine Standardwerte; `Program.cs` ergänzt `type` (RFC 6585, Abschnitt 3) und `title` in `ClientErrorMapping`, damit auch diese Problem Details vollständig sind.
 - Der Controller prüft `If-Match` gegen die gerade geladene Version. Damit dazwischen keine Änderung verloren geht, prüft zusätzlich die Datenbank: `Version` ist in der EF-Konfiguration ein Concurrency-Token. Das Repository setzt beim Speichern den Original-Wert auf die vom Client erwartete Version, EF Core speichert also nur, wenn die gespeicherte Version noch dieselbe ist. Bei `*` bleibt der Original-Wert die geladene Version, sodass auch dann eine gleichzeitige Änderung erkannt wird.
-- Die `DbUpdateConcurrencyException`, mit der EF Core einen fehlgeschlagenen Vergleich meldet, fängt das Repository ab und gibt sie als `ChangeStatus` zurück: `NotFound`, wenn die Adresse inzwischen gelöscht wurde (`GetDatabaseValuesAsync` liefert `null`), sonst `VersionMismatch`. Der Eintrag wird danach nicht mehr verfolgt. Die API antwortet mit **404** bzw. **412**.
+- Die `DbUpdateConcurrencyException`, mit der EF Core einen fehlgeschlagenen Vergleich meldet, fängt das Repository ab und gibt sie als `ChangeStatus` zurück: `NotFound`, wenn die Adresse nicht gespeichert ist (`GetDatabaseValuesAsync` liefert `null`) oder inzwischen gelöscht wurde (`IsDeleted` in den gespeicherten Werten; `GetDatabaseValuesAsync` ignoriert den Query Filter), sonst `VersionMismatch`. Der Eintrag wird danach nicht mehr verfolgt. Die API antwortet mit **404** bzw. **412**.
 - `ConcurrentAddressChangeTests` beweist, dass EF InMemory den Token prüft: Zwei Requests mit derselben Version bestehen alle Prüfungen des Controllers und warten dann im `RendezvousAddressRepository` aufeinander, bevor beide speichern. Genau einer ist erfolgreich, der andere bekommt **412** (bei zwei `DELETE` **404**). Die Repository-Tests zeigen dasselbe mit zwei `DbContext`-Instanzen.
+
+**Soft-Delete**
+- Löschen entfernt eine Adresse nicht, sondern markiert sie: `address.Delete(timeProvider)` setzt `IsDeleted`, `DeletedAt` und `UpdatedAt` auf den Zeitpunkt der Löschung und erhöht die `Version`. Die Werte der Adresse bleiben erhalten.
+- Nach außen verhält sich eine gelöschte Adresse, als hätte es sie nie gegeben: `GET`, `PUT`, `PATCH` und `DELETE` liefern **404** mit denselben Problem Details wie eine nie vergebene Id, unabhängig vom `If-Match`-Header (auch mit dem ETag der Löschung oder `*`), und die Liste enthält sie nicht. `IsDeleted` und `DeletedAt` stehen in keinem DTO und nicht im OpenAPI-Dokument.
+- Grundlage ist der Global Query Filter (siehe **Persistenz**): Der Service bekommt eine gelöschte Adresse gar nicht erst zu sehen. Zusätzlich schützt die Entity sich selbst: `Update` und ein erneutes `Delete` auf einer gelöschten Adresse werfen eine `InvalidOperationException` und lassen sie unverändert. Über die API ist das nicht erreichbar; es wäre ein Programmierfehler (**500**).
+- Wird eine Adresse gelöscht, während eine andere Anfrage sie gerade ändert oder löscht, erkennt das der Concurrency-Token; die andere Anfrage bekommt **404**, die erste Löschung bleibt erhalten.
+- Es gibt bewusst keinen Endpunkt zum Wiederherstellen oder endgültigen Entfernen. Gelöschte Datensätze bleiben gespeichert; für den produktiven Einsatz wären eine Aufbewahrungsfrist und ein Bereinigungsjob nötig (z. B. wegen DSGVO).
 
 **PATCH**
 - JSON Patch (RFC 6902) statt JSON Merge Patch: eindeutiges Format für generierte Clients und offizielle Unterstützung mit System.Text.Json.

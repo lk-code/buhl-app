@@ -68,6 +68,11 @@ public interface IAddressService
     /// <summary>
     /// Deletes the address with the given id if it still has the expected version.
     /// </summary>
+    /// <remarks>
+    /// The address is only marked as deleted and kept. Afterwards, it behaves as if it had never existed: it is
+    /// neither found by <see cref="GetByIdAsync"/> nor listed by <see cref="GetListAsync"/>, and it can neither be
+    /// changed nor deleted again.
+    /// </remarks>
     /// <param name="id">The id of the address.</param>
     /// <param name="expectedVersion">
     /// The version the client expects the address to have; <see langword="null"/> to delete the address in any
@@ -76,7 +81,8 @@ public interface IAddressService
     /// <param name="cancellationToken">The token to cancel the operation.</param>
     /// <returns>
     /// <see cref="ChangeStatus.Success"/> if the address was deleted; <see cref="ChangeStatus.NotFound"/> if there is
-    /// no address with the id; <see cref="ChangeStatus.VersionMismatch"/> if its version differs.
+    /// no address with the id or it is already deleted; <see cref="ChangeStatus.VersionMismatch"/> if its version
+    /// differs.
     /// </returns>
     Task<ChangeStatus> DeleteAsync(Guid id, long? expectedVersion, CancellationToken cancellationToken);
 }
