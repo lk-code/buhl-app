@@ -34,6 +34,28 @@ public static class AddressMappingExtensions
     }
 
     /// <summary>
+    /// Maps the <paramref name="response"/> to a request that replaces all values of the address with its current
+    /// values, e.g. as the starting point of a partial change.
+    /// </summary>
+    /// <param name="response">The address to map.</param>
+    /// <returns>The request with the values of the address.</returns>
+    /// <exception cref="ArgumentNullException"><paramref name="response"/> is <see langword="null"/>.</exception>
+    public static UpdateAddressRequest ToUpdateRequest(this AddressResponse response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+
+        return new UpdateAddressRequest(
+            response.FirstName,
+            response.LastName,
+            response.Street,
+            response.HouseNumber,
+            response.PostalCode,
+            response.City,
+            response.Country,
+            response.Email);
+    }
+
+    /// <summary>
     /// Creates a new address from the <paramref name="request"/>.
     /// </summary>
     /// <param name="request">The sanitized and validated request.</param>

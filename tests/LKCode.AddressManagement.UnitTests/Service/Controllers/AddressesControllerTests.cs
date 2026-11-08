@@ -1,3 +1,4 @@
+using System.Text.Json;
 using AwesomeAssertions;
 using FluentValidation;
 using FluentValidation.Results;
@@ -6,6 +7,7 @@ using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Controllers;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -71,6 +73,8 @@ public class AddressesControllerTests
         "\nBerlin",
         "de",
         " max.mustermann@example.com ");
+
+    private const string ReplaceFirstName = """{"op": "replace", "path": "/firstName", "value": "Max"}""";
 
     private ServiceProvider _serviceProvider = null!;
     private IAddressService _addressService = null!;
@@ -497,6 +501,284 @@ public class AddressesControllerTests
     }
 
     [Test]
+    public async Task PatchAsync_NullPatchDocument_ThrowsArgumentNullException()
+    {
+        // Arrange
+        JsonPatchDocument<UpdateAddressRequest> patchDocument = null!;
+
+        // Act
+        Func<Task> act = () => _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        await act.Should().ThrowAsync<ArgumentNullException>().WithParameterName("patchDocument");
+    }
+
+    [Test]
+    public async Task PatchAsync_InvalidOperations_ReturnsValidationProblemWithJsonPaths()
+    {
+        // Arrange
+        JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
+            """{"op": "replace", "path": "/firstName", "value": "Max"}""",
+            """{"op": "foo", "path": "/FirstName"}""");
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        ObjectResult objectResult = result.Result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        ValidationProblemDetails problem = objectResult.Value.Should().BeOfType<ValidationProblemDetails>().Which;
+        problem.Errors.Should().BeEquivalentTo(new Dictionary<string, string[]>
+        {
+            ["$[1].op"] = ["The operation must be 'add', 'remove', 'replace', 'move', 'copy' or 'test'."],
+            ["$[1].path"] = ["The path must point to a field of the address, e.g. '/firstName'."],
+        });
+    }
+
+    [Test]
+    public async Task PatchAsync_InvalidOperations_DoesNotLoadOrUpdateAddress()
+    {
+        // Arrange
+        JsonPatchDocument<UpdateAddressRequest> patchDocument =
+            ParsePatch("""{"op": "replace", "path": "/unknown", "value": "Max"}""");
+
+        // Act
+        await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        await _addressService.DidNotReceiveWithAnyArgs().GetByIdAsync(default, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    [Test]
+    public async Task PatchAsync_UnknownId_ReturnsNotFound()
+    {
+        // Arrange
+        var id = Guid.CreateVersion7(_createdAt);
+        _addressService.GetByIdAsync(id, Arg.Any<CancellationToken>()).Returns((AddressResponse?)null);
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.PatchAsync(id, ParsePatch(ReplaceFirstName), CancellationToken.None);
+
+        // Assert
+        result.Result.Should().BeOfType<NotFoundResult>();
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    [Test]
+    public async Task PatchAsync_FailedTest_ReturnsConflictWithProblemDetails()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
+            ReplaceFirstName,
+            """{"op": "test", "path": "/city", "value": "Berlin"}""");
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        ObjectResult objectResult = result.Result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status409Conflict);
+        ProblemDetails problem = objectResult.Value.Should().BeOfType<ProblemDetails>().Which;
+        problem.Status.Should().Be(StatusCodes.Status409Conflict);
+        problem.Title.Should().Be("Conflict");
+        problem.Detail.Should().Be(
+            "The test operation at index 1 failed: the value at '/city' is not equal to the test value.");
+    }
+
+    [Test]
+    public async Task PatchAsync_FailedTest_DoesNotValidateOrUpdateAddress()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        JsonPatchDocument<UpdateAddressRequest> patchDocument =
+            ParsePatch("""{"op": "test", "path": "/firstName", "value": "Max"}""", ReplaceFirstName);
+
+        // Act
+        await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        await _updateAddressValidator.DidNotReceiveWithAnyArgs().ValidateAsync(default!, default);
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    [Test]
+    public async Task PatchAsync_ValidPatch_ValidatesSanitizedPatchedValues()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
+            """{"op": "replace", "path": "/firstName", "value": " Max "}""",
+            """{"op": "replace", "path": "/country", "value": "at"}""",
+            """{"op": "replace", "path": "/email", "value": "   "}""");
+
+        // Act
+        await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        await _updateAddressValidator.Received(1).ValidateAsync(
+            new UpdateAddressRequest("Max", "Mustermann", "Heidestraße", "17", "51147", "Köln", "AT", null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PatchAsync_ValidPatch_UpdatesAddressWithSanitizedPatchedValues()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
+            """{"op": "test", "path": "/lastName", "value": "Mustermann"}""",
+            """{"op": "copy", "from": "/city", "path": "/street"}""",
+            """{"op": "remove", "path": "/email"}""",
+            """{"op": "add", "path": "/houseNumber", "value": " 4a"}""");
+
+        // Act
+        await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        await _addressService.Received(1).UpdateAsync(
+            _address.Id,
+            new UpdateAddressRequest("Erika", "Mustermann", "Köln", "4a", "51147", "Köln", "DE", null),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PatchAsync_NoOperations_UpdatesAddressWithCurrentValues()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+
+        // Act
+        await _controller.PatchAsync(_address.Id, ParsePatch(), CancellationToken.None);
+
+        // Assert
+        await _addressService.Received(1).UpdateAsync(
+            _address.Id,
+            new UpdateAddressRequest(
+                "Erika",
+                "Mustermann",
+                "Heidestraße",
+                "17",
+                "51147",
+                "Köln",
+                "DE",
+                "erika.mustermann@example.com"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PatchAsync_ValidPatch_ReturnsOkWithAddress()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        AddressResponse updated = _address with { FirstName = "Max" };
+        _addressService
+            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns(updated);
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.PatchAsync(_address.Id, ParsePatch(ReplaceFirstName), CancellationToken.None);
+
+        // Assert
+        result.Result.Should().BeOfType<OkObjectResult>().Which.Value.Should().BeSameAs(updated);
+    }
+
+    [Test]
+    public async Task PatchAsync_AddressDeletedBeforeUpdate_ReturnsNotFound()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        _addressService
+            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), Arg.Any<CancellationToken>())
+            .Returns((AddressResponse?)null);
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.PatchAsync(_address.Id, ParsePatch(ReplaceFirstName), CancellationToken.None);
+
+        // Assert
+        result.Result.Should().BeOfType<NotFoundResult>();
+    }
+
+    [Test]
+    public async Task PatchAsync_InvalidPatchedValues_ReturnsValidationProblemWithJsonNames()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        ReturnUpdateValidationErrors(
+            new ValidationFailure("FirstName", "'First Name' must not be empty."),
+            new ValidationFailure("PostalCode", "'Postal Code' must not be empty."));
+        JsonPatchDocument<UpdateAddressRequest> patchDocument = ParsePatch(
+            """{"op": "remove", "path": "/firstName"}""",
+            """{"op": "move", "from": "/postalCode", "path": "/city"}""");
+
+        // Act
+        ActionResult<AddressResponse> result =
+            await _controller.PatchAsync(_address.Id, patchDocument, CancellationToken.None);
+
+        // Assert
+        ObjectResult objectResult = result.Result.Should().BeAssignableTo<ObjectResult>().Which;
+        objectResult.StatusCode.Should().Be(StatusCodes.Status400BadRequest);
+        ValidationProblemDetails problem = objectResult.Value.Should().BeOfType<ValidationProblemDetails>().Which;
+        problem.Errors.Should().BeEquivalentTo(new Dictionary<string, string[]>
+        {
+            ["firstName"] = ["'First Name' must not be empty."],
+            ["postalCode"] = ["'Postal Code' must not be empty."],
+        });
+        await _updateAddressValidator.Received(1).ValidateAsync(
+            new UpdateAddressRequest(
+                string.Empty,
+                "Mustermann",
+                "Heidestraße",
+                "17",
+                string.Empty,
+                "51147",
+                "DE",
+                "erika.mustermann@example.com"),
+            Arg.Any<CancellationToken>());
+    }
+
+    [Test]
+    public async Task PatchAsync_InvalidPatchedValues_DoesNotUpdateAddress()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        ReturnUpdateValidationErrors(new ValidationFailure("FirstName", "'First Name' must not be empty."));
+
+        // Act
+        await _controller.PatchAsync(
+            _address.Id,
+            ParsePatch("""{"op": "remove", "path": "/firstName"}"""),
+            CancellationToken.None);
+
+        // Assert
+        await _addressService.DidNotReceiveWithAnyArgs().UpdateAsync(default, default!, default);
+    }
+
+    [Test]
+    public async Task PatchAsync_ValidPatch_PassesIdAndCancellationTokenToServiceAndValidator()
+    {
+        // Arrange
+        ReturnAddressForPatch();
+        using var cancellationTokenSource = new CancellationTokenSource();
+
+        // Act
+        await _controller.PatchAsync(_address.Id, ParsePatch(ReplaceFirstName), cancellationTokenSource.Token);
+
+        // Assert
+        await _addressService.Received(1).GetByIdAsync(_address.Id, cancellationTokenSource.Token);
+        await _updateAddressValidator.Received(1)
+            .ValidateAsync(Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
+        await _addressService.Received(1)
+            .UpdateAsync(_address.Id, Arg.Any<UpdateAddressRequest>(), cancellationTokenSource.Token);
+    }
+
+    [Test]
     public async Task DeleteAsync_KnownId_ReturnsNoContent()
     {
         // Arrange
@@ -534,6 +816,16 @@ public class AddressesControllerTests
 
         // Assert
         await _addressService.Received(1).DeleteAsync(_address.Id, cancellationTokenSource.Token);
+    }
+
+    private static JsonPatchDocument<UpdateAddressRequest> ParsePatch(params string[] operations) =>
+        JsonSerializer.Deserialize<JsonPatchDocument<UpdateAddressRequest>>(
+            $"[{string.Join(", ", operations)}]",
+            JsonSerializerOptions.Web)!;
+
+    private void ReturnAddressForPatch()
+    {
+        _addressService.GetByIdAsync(_address.Id, Arg.Any<CancellationToken>()).Returns(_address);
     }
 
     private void ReturnValidationErrors(params ValidationFailure[] failures)
