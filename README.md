@@ -63,6 +63,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 
 | Paket | Lizenz | Verwendung |
 |---|---|---|
+| FluentValidation | Apache-2.0 | Validierung der Requests |
 | NUnit | MIT | Testframework |
 | NUnit3TestAdapter | MIT | NUnit-Runner für Microsoft.Testing.Platform |
 | NUnit.Analyzers | MIT | Analyzer für NUnit-Tests |
@@ -94,6 +95,14 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Regeln Ort: Leerzeichen trimmen und zusammenfassen, Kleinbuchstaben, Sonderzeichen ersetzen (ß→ss, æ→ae, œ→oe, ø→o, ł→l, đ→d, þ→th, ð→d, ı→i, ħ→h, ŧ→t), Akzente entfernen, danach ae→a, oe→o, ue→u. Regeln PLZ: alle Leerzeichen entfernen, Großbuchstaben (`sw1a 1aa` → `SW1A1AA`).
 - Das Repository erwartet bereits normalisierte Filterwerte. Leere Filter werden ignoriert, Ort und PLZ sind UND-verknüpft.
 - Bei einer echten Datenbank kann `LIKE '%…%'` keinen Index nutzen. Für große Datenmengen wäre eine Volltextsuche sinnvoll.
+
+**Validierung**
+- Die API arbeitet mit eigenen DTOs (`CreateAddressRequest`, `UpdateAddressRequest`, `AddressResponse`, `AddressListQuery`), nie direkt mit der Entity. Das Mapping liegt in `AddressMappingExtensions`; die normalisierten Felder werden nicht ausgeliefert.
+- Ablauf: erst bereinigen (`Sanitize()`: trimmen, `Country` in Großbuchstaben, leere E-Mail → `null`), dann validieren. Ein fehlendes Pflichtfeld wird beim Bereinigen zu einem leeren String und von der Validierung gemeldet.
+- Die Regeln für Anlegen und Ändern stehen einmal in `AddressRequestValidator<TRequest>`; beide Requests implementieren `IAddressRequest`. Pro Feld gibt es höchstens einen Fehler, gemeldet werden aber alle fehlerhaften Felder.
+- `Country` muss aus genau zwei Großbuchstaben bestehen und ein vergebener ISO-3166-1-Alpha-2-Code sein. Die 249 Codes stehen als feste Liste in `CountryCodes` und werden einmalig in ein `FrozenSet` geladen. Bewusst nicht aus `RegionInfo`/`CultureInfo` berechnet: Die Daten des Betriebssystems sind unvollständig, enthalten inoffizielle Codes (z. B. `XK`) und fehlen im Invariant-Globalization-Modus (z. B. in Chiseled-Containern) ganz.
+- E-Mail: Prüfung über `MailAddress.TryCreate`, das keine Exception wirft. Die erkannte Adresse muss exakt der Eingabe entsprechen; so werden Anzeigenamen, Kommentare und Adresslisten abgelehnt. RFC-gültige Sonderformen wie `"erika mustermann"@example.com` oder Umlaute in der Domain sind erlaubt.
+- Die Validatoren sind zustandslos und werden über `AddCoreAddresses()` als Singleton registriert.
 
 **Fehlerbehandlung**
 - Fehler werden als Problem Details nach RFC 7807 (bzw. Nachfolger RFC 9457) zurückgegeben.
