@@ -95,6 +95,46 @@ public class OpenApiTests
     }
 
     [Test]
+    public async Task GetAsync_OpenApiDocumentWithoutToken_Returns200()
+    {
+        // Arrange
+        using HttpClient client = _factory.CreateAnonymousClient();
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(OpenApiDocumentPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task GetAsync_OpenApiDocumentInProductionWithoutToken_Returns200()
+    {
+        // Arrange
+        using HttpClient client = _productionFactory.CreateAnonymousClient();
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(OpenApiDocumentPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task GetAsync_ScalarInDevelopmentWithoutToken_ReturnsHtmlPage()
+    {
+        // Arrange
+        using HttpClient client = _factory.CreateAnonymousClient();
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(ScalarPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (response.Content.Headers.ContentType?.MediaType).Should().Be("text/html");
+    }
+
+    [Test]
     public async Task GetAsync_UnknownOpenApiDocument_Returns404()
     {
         // Act

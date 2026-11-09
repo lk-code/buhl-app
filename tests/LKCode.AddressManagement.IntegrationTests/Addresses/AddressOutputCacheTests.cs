@@ -7,6 +7,7 @@ using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.IntegrationTests.Fakes;
 using LKCode.AddressManagement.Service;
+using LKCode.AddressManagement.Service.AuthorizationPolicies;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -17,6 +18,7 @@ namespace LKCode.AddressManagement.IntegrationTests.Addresses;
 /// <summary>
 /// Tests the server-side output cache of the address endpoints. Every test has its own host, so it starts with an
 /// empty database and an empty cache. A response comes from the cache if and only if it has the header <c>Age</c>.
+/// The requests are authenticated with the default token of the factory, unless a test says otherwise.
 /// </summary>
 public class AddressOutputCacheTests
 {
@@ -609,6 +611,112 @@ public class AddressOutputCacheTests
         // Assert
         response.Headers.Age.Should().NotBeNull();
         (await response.Content.ReadFromJsonAsync<AddressResponse>()).Should().Be(updated);
+    }
+
+    [TestCaseSource(nameof(RejectedTokenCases))]
+    public async Task GetAsync_CachedResponseWithoutValidTokenWithReadScope_IsRejectedBeforeCache(
+        bool isSingleAddress,
+        string tokenCase,
+        HttpStatusCode expectedStatusCode)
+    {
+        // Arrange
+        AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
+        string url = isSingleAddress ? $"{Path}/{created.Id}" : Path;
+        await CacheAsync(url);
+        using HttpClient client = tokenCase == "none"
+            ? _factory.CreateAnonymousClient()
+            : _factory.CreateClientWithToken(CreateRejectedToken(tokenCase));
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(url);
+
+        // Assert
+        response.StatusCode.Should().Be(expectedStatusCode);
+        response.Headers.Age.Should().BeNull();
+        (response.Content.Headers.ContentType?.MediaType).Should().Be(HttpResponseMessageExtensions.ProblemDetailsMediaType);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task GetAsync_CachedResponseWithOtherTokenWithReadScope_IsServedFromCache(bool isSingleAddress)
+    {
+        // Arrange
+        AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
+        string url = isSingleAddress ? $"{Path}/{created.Id}" : Path;
+        await CacheAsync(url);
+        using HttpClient client = _factory.CreateClientWithToken(TestTokens.WithScopes(AddressScopes.Read));
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(url);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.Age.Should().NotBeNull();
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task GetAsync_RejectedRequest_IsNotCached(bool isSingleAddress)
+    {
+        // Arrange
+        AddressResponse created = await _factory.SeedAddressAsync(AddressPayloads.ValidRequest);
+        string url = isSingleAddress ? $"{Path}/{created.Id}" : Path;
+        using HttpClient anonymousClient = _factory.CreateAnonymousClient();
+        using HttpClient writeOnlyClient =
+            _factory.CreateClientWithToken(TestTokens.WithScopes(AddressScopes.Write));
+        using HttpResponseMessage unauthorized = await anonymousClient.GetAsync(url);
+        using HttpResponseMessage forbidden = await writeOnlyClient.GetAsync(url);
+
+        // Act
+        using HttpResponseMessage response = await _client.GetAsync(url);
+
+        // Assert
+        unauthorized.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        forbidden.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.Age.Should().BeNull();
+        _factory.GetRecordingOutputCacheStore().StoredEntries.Should().ContainSingle();
+    }
+
+    private static IEnumerable<TestCaseData> RejectedTokenCases()
+    {
+        (string TokenCase, HttpStatusCode StatusCode)[] tokenCases =
+        [
+            ("none", HttpStatusCode.Unauthorized),
+            ("expired", HttpStatusCode.Unauthorized),
+            ("wrong signature", HttpStatusCode.Unauthorized),
+            ("write scope only", HttpStatusCode.Forbidden),
+            ("no scope", HttpStatusCode.Forbidden),
+        ];
+
+        foreach (bool isSingleAddress in new[] { true, false })
+        {
+            foreach ((string tokenCase, HttpStatusCode statusCode) in tokenCases)
+            {
+                yield return new TestCaseData(isSingleAddress, tokenCase, statusCode)
+                    .SetArgDisplayNames(isSingleAddress ? "single address" : "list", tokenCase);
+            }
+        }
+    }
+
+    private static string CreateRejectedToken(string tokenCase)
+    {
+        var bothScopes = new Dictionary<string, object>
+        {
+            [TestTokens.ScopeClaimType] = $"{AddressScopes.Read} {AddressScopes.Write}",
+        };
+
+        return tokenCase switch
+        {
+            "expired" => TestTokens.Create(
+                bothScopes,
+                notBefore: TimeSpan.FromHours(-2),
+                expires: TimeSpan.FromHours(-1)),
+            "wrong signature" => TestTokens.Create(bothScopes, signingKey: TestTokens.OtherSigningKey),
+            "write scope only" => TestTokens.WithScopes(AddressScopes.Write),
+            "no scope" => TestTokens.WithScopes(),
+            _ => throw new ArgumentOutOfRangeException(nameof(tokenCase), tokenCase, "Unknown token case."),
+        };
     }
 
     private static IEnumerable<HttpMethod> Methods() => AddressChangeRequests.Methods;
