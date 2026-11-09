@@ -5,6 +5,31 @@
 
 REST-API zur Verwaltung von Adressen auf Basis von .NET 10. Entwickelt testgetrieben mit klarer Schichtentrennung, EF Core InMemory als Persistenz und einer vollständig dokumentierten OpenAPI-Schnittstelle. Alle Pflicht- und Bonuspunkte der Aufgabe sind umgesetzt.
 
+## Schritte
+
+Von einem frischen Checkout bis zum ersten Request:
+
+1. **Repository klonen und Werkzeuge wiederherstellen**
+   ```bash
+   git clone https://github.com/lk-code/buhl-app.git
+   cd buhl-app
+   dotnet tool restore
+   ```
+2. **Token erzeugen** (legt beim ersten Aufruf auch den Signaturschlüssel in den User Secrets an)
+   ```bash
+   dotnet user-jwts create --project src/LKCode.AddressManagement.Service --scope "addresses:read" --scope "addresses:write"
+   git checkout -- src/LKCode.AddressManagement.Service/appsettings.Development.json
+   ```
+   Das ausgegebene Token kopieren. Der zweite Befehl verwirft die Änderung, die `dotnet user-jwts` an `appsettings.Development.json` vornimmt.
+3. **API starten**
+   ```bash
+   dotnet run --project src/LKCode.AddressManagement.Service
+   ```
+4. **Ausprobieren:** `http://localhost:5180/scalar` öffnen, das Token unter Authentifizierung eintragen und die Endpunkte aufrufen. Alternativ per `curl`:
+   ```bash
+   curl -i http://localhost:5180/api/addresses -H "Authorization: Bearer <token>"
+   ```
+
 ## Befehle
 
 Voraussetzung: .NET 10 SDK (Version siehe `global.json`). Weitere Abhängigkeiten gibt es nicht.
