@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.Primitives;
 
 namespace LKCode.AddressManagement.Service.OutputCachePolicies;
 
@@ -18,6 +19,11 @@ namespace LKCode.AddressManagement.Service.OutputCachePolicies;
 public sealed class AuthenticatedDefaultPolicy : IOutputCachePolicy
 {
     /// <summary>
+    /// The value of <see cref="CacheVaryByRules.QueryKeys"/> that varies by all query parameters.
+    /// </summary>
+    private const string AllQueryKeys = "*";
+
+    /// <summary>
     /// Enables the output cache and allows lookup and storage for <c>GET</c> and <c>HEAD</c> requests.
     /// </summary>
     /// <param name="context">The context of the request.</param>
@@ -26,7 +32,17 @@ public sealed class AuthenticatedDefaultPolicy : IOutputCachePolicy
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is <see langword="null"/>.</exception>
     public ValueTask CacheRequestAsync(OutputCacheContext context, CancellationToken cancellation)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(context);
+
+        string method = context.HttpContext.Request.Method;
+        bool isCacheable = HttpMethods.IsGet(method) || HttpMethods.IsHead(method);
+        context.EnableOutputCaching = true;
+        context.AllowCacheLookup = isCacheable;
+        context.AllowCacheStorage = isCacheable;
+        context.AllowLocking = true;
+        context.CacheVaryByRules.QueryKeys = AllQueryKeys;
+
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -38,7 +54,9 @@ public sealed class AuthenticatedDefaultPolicy : IOutputCachePolicy
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is <see langword="null"/>.</exception>
     public ValueTask ServeFromCacheAsync(OutputCacheContext context, CancellationToken cancellation)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(context);
+
+        return ValueTask.CompletedTask;
     }
 
     /// <summary>
@@ -50,6 +68,14 @@ public sealed class AuthenticatedDefaultPolicy : IOutputCachePolicy
     /// <exception cref="ArgumentNullException"><paramref name="context"/> is <see langword="null"/>.</exception>
     public ValueTask ServeResponseAsync(OutputCacheContext context, CancellationToken cancellation)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(context);
+
+        HttpResponse response = context.HttpContext.Response;
+        if (response.StatusCode != StatusCodes.Status200OK || !StringValues.IsNullOrEmpty(response.Headers.SetCookie))
+        {
+            context.AllowCacheStorage = false;
+        }
+
+        return ValueTask.CompletedTask;
     }
 }
