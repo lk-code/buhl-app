@@ -5,6 +5,27 @@
     <UserSecretsId>2d6f7c70-3681-498a-a19b-1f486362f65a</UserSecretsId>
   </PropertyGroup>
 
+  <!--
+    Container image for `dotnet publish -t:PublishContainer`, built without a Dockerfile. The registry is not set here,
+    so that a local publish loads the image into the local container tool; the workflow publish-container.yml sets
+    ContainerRegistry to ghcr.io. The default tag is latest; the workflow sets the tags via ContainerImageTags.
+  -->
+  <PropertyGroup Label="Container">
+    <ContainerRepository>lk-code/buhl-app</ContainerRepository>
+    <ContainerDescription>REST API for managing addresses.</ContainerDescription>
+    <!--
+      Chiseled image (distroless: no shell, no package manager) with ICU. The plain chiseled image has no ICU; the app
+      would then require InvariantGlobalization, in which string.Normalize does not decompose accents (the search for
+      "koln" would no longer find "Köln") and strings are compared ordinally.
+    -->
+    <ContainerFamily>noble-chiseled-extra</ContainerFamily>
+    <ContainerRuntimeIdentifier>linux-x64</ContainerRuntimeIdentifier>
+    <!-- The non-root user app of the .NET images (APP_UID), numeric so that e.g. runAsNonRoot can verify it. -->
+    <ContainerUser>1654</ContainerUser>
+    <!-- Writes the labels org.opencontainers.image.source and org.opencontainers.image.revision. -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.JsonPatch.SystemTextJson" />
