@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - main
+    # Version tags are built and tested as well; publish-container.yml publishes their image afterwards.
+    tags:
+      - v*
   pull_request:
     branches:
       - main
