@@ -157,7 +157,7 @@ public class OpenApiDocumentTests
     }
 
     [Test]
-    public void Responses_CreatedOrWithHeaders_AreSingleAddressesWithETagCreatedWithLocationAndCachedWithAge()
+    public void Responses_CreatedOrWithHeaders_AreAddressesWithETagCreatedWithLocationCachedWithAgeOrUnauthorized()
     {
         // Act
         IEnumerable<string> responses = _operations.SelectMany(operation =>
@@ -167,12 +167,90 @@ public class OpenApiDocumentTests
                     + string.Join(", ", GetHeaderNames(response.Value))));
 
         // Assert
-        responses.Should().Equal(
+        responses.Should().BeEquivalentTo(
             "get /api/addresses 200: Age",
+            "get /api/addresses 401: WWW-Authenticate",
             "post /api/addresses 201: Location, ETag",
+            "post /api/addresses 401: WWW-Authenticate",
             "get /api/addresses/{id} 200: ETag, Age",
+            "get /api/addresses/{id} 401: WWW-Authenticate",
             "put /api/addresses/{id} 200: ETag",
-            "patch /api/addresses/{id} 200: ETag");
+            "put /api/addresses/{id} 401: WWW-Authenticate",
+            "patch /api/addresses/{id} 200: ETag",
+            "patch /api/addresses/{id} 401: WWW-Authenticate",
+            "delete /api/addresses/{id} 401: WWW-Authenticate");
+    }
+
+    [Test]
+    public void Components_SecuritySchemes_AreExactlyHttpBearerForJwt()
+    {
+        // Act
+        JsonElement securitySchemes = _document.GetProperty("components").GetProperty("securitySchemes");
+
+        // Assert
+        GetNames(securitySchemes).Should().Equal("Bearer");
+        JsonElement bearer = securitySchemes.GetProperty("Bearer");
+        bearer.GetProperty("type").GetString().Should().Be("http");
+        bearer.GetProperty("scheme").GetString().Should().Be("bearer");
+        bearer.GetProperty("bearerFormat").GetString().Should().Be("JWT");
+        bearer.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+    }
+
+    [Test]
+    public void Document_Security_IsNotRequiredForWholeDocument()
+    {
+        // Act
+        bool hasSecurity = _document.TryGetProperty("security", out _);
+
+        // Assert
+        hasSecurity.Should().BeFalse();
+    }
+
+    [TestCaseSource(nameof(OperationsWithScope))]
+    public void Operation_Security_RequiresBearerWithScopeOfEndpoint(string path, string method, string scope)
+    {
+        // Act
+        JsonElement security = GetOperation(path, method).GetProperty("security");
+
+        // Assert
+        JsonElement requirement = security.EnumerateArray().Should().ContainSingle().Which;
+        GetNames(requirement).Should().Equal("Bearer");
+        requirement.GetProperty("Bearer").EnumerateArray().Select(item => item.GetString()).Should().Equal(scope);
+    }
+
+    [TestCaseSource(nameof(OperationsWithScope))]
+    public void Operation_Description_NamesRequiredScope(string path, string method, string scope)
+    {
+        // Act
+        string? description = GetOperation(path, method).GetProperty("description").GetString();
+
+        // Assert
+        description.Should().Contain($"`{scope}`");
+    }
+
+    [TestCaseSource(nameof(Operations))]
+    public void Operation_UnauthorizedResponse_HasRequiredWwwAuthenticateHeader(string path, string method)
+    {
+        // Act
+        JsonElement response = GetOperation(path, method).GetProperty("responses").GetProperty("401");
+
+        // Assert
+        GetHeaderNames(response).Should().Equal("WWW-Authenticate");
+        JsonElement header = response.GetProperty("headers").GetProperty("WWW-Authenticate");
+        header.GetProperty("required").GetBoolean().Should().BeTrue();
+        header.GetProperty("description").GetString().Should().NotBeNullOrWhiteSpace();
+        GetTypes(header.GetProperty("schema")).Should().Equal("string");
+    }
+
+    [TestCaseSource(nameof(OperationsWithScope))]
+    public void Operation_ForbiddenResponse_NamesScopeAndHasNoHeaders(string path, string method, string scope)
+    {
+        // Act
+        JsonElement response = GetOperation(path, method).GetProperty("responses").GetProperty("403");
+
+        // Assert
+        response.GetProperty("description").GetString().Should().Contain($"`{scope}`");
+        GetHeaderNames(response).Should().BeEmpty();
     }
 
     [Test]
@@ -303,6 +381,13 @@ public class OpenApiDocumentTests
 
     private static IEnumerable<TestCaseData> Operations() =>
         _operations.Select(operation => new TestCaseData(operation.Path, operation.Method)
+            .SetArgDisplayNames(operation.Method, operation.Path));
+
+    private static IEnumerable<TestCaseData> OperationsWithScope() =>
+        _operations.Select(operation => new TestCaseData(
+                operation.Path,
+                operation.Method,
+                operation.Method == "get" ? "addresses:read" : "addresses:write")
             .SetArgDisplayNames(operation.Method, operation.Path));
 
     private static IEnumerable<TestCaseData> StringMembersOfProblemDetailsSchemas()

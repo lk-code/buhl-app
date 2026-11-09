@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using LKCode.AddressManagement.Core.Addresses.Contracts;
 using LKCode.AddressManagement.Data.Repositories;
 using LKCode.AddressManagement.IntegrationTests.Fakes;
@@ -92,10 +93,38 @@ public static class WebApplicationFactoryExtensions
     public static WebApplicationFactory<Program> WithSetting(
         this WebApplicationFactory<Program> factory,
         string key,
-        string value)
+        string? value)
     {
         ArgumentNullException.ThrowIfNull(factory);
 
         return factory.WithWebHostBuilder(builder => builder.UseSetting(key, value));
     }
+
+    /// <summary>
+    /// Creates a client that sends the <paramref name="authorization"/> header instead of the default token of the
+    /// <see cref="AddressManagementWebApplicationFactory"/>; <see langword="null"/> to send no such header.
+    /// </summary>
+    public static HttpClient CreateClientWithAuthorization(
+        this WebApplicationFactory<Program> factory,
+        AuthenticationHeaderValue? authorization)
+    {
+        ArgumentNullException.ThrowIfNull(factory);
+
+        HttpClient client = factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization = authorization;
+
+        return client;
+    }
+
+    /// <summary>
+    /// Creates a client that sends the <paramref name="token"/> as bearer token.
+    /// </summary>
+    public static HttpClient CreateClientWithToken(this WebApplicationFactory<Program> factory, string token) =>
+        factory.CreateClientWithAuthorization(new AuthenticationHeaderValue("Bearer", token));
+
+    /// <summary>
+    /// Creates a client that sends no <c>Authorization</c> header.
+    /// </summary>
+    public static HttpClient CreateAnonymousClient(this WebApplicationFactory<Program> factory) =>
+        factory.CreateClientWithAuthorization(null);
 }

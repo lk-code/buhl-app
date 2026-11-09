@@ -84,6 +84,17 @@ public class OpenApiTests
     }
 
     [Test]
+    public async Task GetAsync_ScalarInDevelopment_PrefersBearerSecurityScheme()
+    {
+        // Act
+        using HttpResponseMessage response = await _client.GetAsync(ScalarPath);
+
+        // Assert
+        string html = await response.Content.ReadAsStringAsync();
+        html.Should().Contain("\"authentication\":{\"preferredSecurityScheme\":[\"Bearer\"]}");
+    }
+
+    [Test]
     public async Task GetAsync_ScalarInProduction_Returns404WithProblemDetails()
     {
         // Act
@@ -92,6 +103,46 @@ public class OpenApiTests
         // Assert
         response.StatusCode.Should().Be(HttpStatusCode.NotFound);
         (response.Content.Headers.ContentType?.MediaType).Should().Be("application/problem+json");
+    }
+
+    [Test]
+    public async Task GetAsync_OpenApiDocumentWithoutToken_Returns200()
+    {
+        // Arrange
+        using HttpClient client = _factory.CreateAnonymousClient();
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(OpenApiDocumentPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task GetAsync_OpenApiDocumentInProductionWithoutToken_Returns200()
+    {
+        // Arrange
+        using HttpClient client = _productionFactory.CreateAnonymousClient();
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(OpenApiDocumentPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task GetAsync_ScalarInDevelopmentWithoutToken_ReturnsHtmlPage()
+    {
+        // Arrange
+        using HttpClient client = _factory.CreateAnonymousClient();
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(ScalarPath);
+
+        // Assert
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        (response.Content.Headers.ContentType?.MediaType).Should().Be("text/html");
     }
 
     [Test]

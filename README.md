@@ -24,48 +24,57 @@ dotnet run --project src/LKCode.AddressManagement.Service
 | OpenAPI-Dokument | `http://localhost:5180/openapi/v1.json` |
 | Scalar (nur in Development) | `http://localhost:5180/scalar` |
 
+Die Endpunkte verlangen ein JWT mit Scope; ein Entwicklungs-Token erzeugt `dotnet user-jwts` (siehe **Authentifizierung**). OpenAPI-Dokument und Scalar sind ohne Token erreichbar.
+
 ## Endpunkte
 
-| Methode | Pfad | Erfolg | Fehler |
-|---|---|---|---|
-| `POST` | `/api/addresses` | `201 Created` mit der Adresse, ihrer URL im `Location`-Header und ihrer Version im `ETag`-Header | `400` ungültige Werte oder ungültiges JSON, `415` Body ist kein JSON |
-| `GET` | `/api/addresses?city=&postalCode=&page=&pageSize=&sortBy=&sortDirection=` | `200 OK` mit einer Seite der passenden Adressen (`items`, `page`, `pageSize`, `totalCount`, `totalPages`), auch leer | `400` ungültige Seite, Seitengröße oder Sortierung |
-| `GET` | `/api/addresses/{id}` | `200 OK` mit der Adresse und ihrer Version im `ETag`-Header | `404` unbekannte Id oder keine GUID |
-| `PUT` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse und ihrer neuen Version im `ETag`-Header | `400` ungültiges `If-Match`, ungültige Werte oder ungültiges JSON, `404` unbekannte Id oder keine GUID, `412` Version passt nicht, `415` Body ist kein JSON, `428` `If-Match` fehlt |
-| `PATCH` | `/api/addresses/{id}` | `200 OK` mit der geänderten Adresse und ihrer neuen Version im `ETag`-Header | `400` ungültiges `If-Match`, ungültiges Patch-Dokument oder ungültige Werte, `404` unbekannte Id oder keine GUID, `409` `test`-Operation fehlgeschlagen, `412` Version passt nicht, `415` Body ist kein JSON Patch, `428` `If-Match` fehlt |
-| `DELETE` | `/api/addresses/{id}` | `204 No Content` | `400` ungültiges `If-Match`, `404` unbekannte Id oder keine GUID, `412` Version passt nicht, `428` `If-Match` fehlt |
+| Methode | Pfad | Scope | Erfolg | Fehler |
+|---|---|---|---|---|
+| `POST` | `/api/addresses` | `addresses:write` | `201 Created` mit der Adresse, ihrer URL im `Location`-Header und ihrer Version im `ETag`-Header | `400` ungültige Werte oder ungültiges JSON, `415` Body ist kein JSON |
+| `GET` | `/api/addresses?city=&postalCode=&page=&pageSize=&sortBy=&sortDirection=` | `addresses:read` | `200 OK` mit einer Seite der passenden Adressen (`items`, `page`, `pageSize`, `totalCount`, `totalPages`), auch leer | `400` ungültige Seite, Seitengröße oder Sortierung |
+| `GET` | `/api/addresses/{id}` | `addresses:read` | `200 OK` mit der Adresse und ihrer Version im `ETag`-Header | `404` unbekannte Id oder keine GUID |
+| `PUT` | `/api/addresses/{id}` | `addresses:write` | `200 OK` mit der geänderten Adresse und ihrer neuen Version im `ETag`-Header | `400` ungültiges `If-Match`, ungültige Werte oder ungültiges JSON, `404` unbekannte Id oder keine GUID, `412` Version passt nicht, `415` Body ist kein JSON, `428` `If-Match` fehlt |
+| `PATCH` | `/api/addresses/{id}` | `addresses:write` | `200 OK` mit der geänderten Adresse und ihrer neuen Version im `ETag`-Header | `400` ungültiges `If-Match`, ungültiges Patch-Dokument oder ungültige Werte, `404` unbekannte Id oder keine GUID, `409` `test`-Operation fehlgeschlagen, `412` Version passt nicht, `415` Body ist kein JSON Patch, `428` `If-Match` fehlt |
+| `DELETE` | `/api/addresses/{id}` | `addresses:write` | `204 No Content` | `400` ungültiges `If-Match`, `404` unbekannte Id oder keine GUID, `412` Version passt nicht, `428` `If-Match` fehlt |
 
-Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
+Zusätzlich liefert jeder Endpunkt `401` ohne gültiges Token und `403`, wenn dem Token der Scope fehlt (siehe **Authentifizierung**). Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
 
 Die Antworten der beiden `GET` können aus dem serverseitigen Cache kommen und tragen dann den Header `Age`. Jede Änderung wirkt trotzdem sofort (siehe **Caching**).
 
 `PUT`, `PATCH` und `DELETE` verlangen den Header `If-Match` mit dem `ETag` der Version, auf die sich die Änderung bezieht (z. B. `"1"`), oder `*` für jede Version (siehe **Optimistic Concurrency**).
 
 ```bash
+# Token mit Lese- und Schreibrechten (siehe Authentifizierung)
+TOKEN=$(dotnet user-jwts create --project src/LKCode.AddressManagement.Service --scope "addresses:read" --scope "addresses:write" -o token)
+
 curl -i -X POST http://localhost:5180/api/addresses \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"firstName":"Erika","lastName":"Mustermann","street":"Hauptstrasse","houseNumber":"17","postalCode":"51147","city":"Koeln","country":"DE","email":"erika.mustermann@example.com"}'
 
 # Adressen, deren Ort „Koeln“ (also auch „Köln“) und deren PLZ „511“ enthält
-curl -i "http://localhost:5180/api/addresses?city=koeln&postalCode=511"
+curl -i "http://localhost:5180/api/addresses?city=koeln&postalCode=511" -H "Authorization: Bearer $TOKEN"
 
 # zweite Seite mit je 10 Adressen, die zuletzt geänderten zuerst
-curl -i "http://localhost:5180/api/addresses?page=2&pageSize=10&sortBy=updatedAt&sortDirection=desc"
+curl -i "http://localhost:5180/api/addresses?page=2&pageSize=10&sortBy=updatedAt&sortDirection=desc" \
+  -H "Authorization: Bearer $TOKEN"
 
 # alle Werte der Version 1 einer Adresse ersetzen; ohne "email" wird eine vorhandene E-Mail entfernt
 curl -i -X PUT http://localhost:5180/api/addresses/<id> \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H 'If-Match: "1"' \
   -d '{"firstName":"Max","lastName":"Mustermann","street":"Hauptstrasse","houseNumber":"1","postalCode":"10115","city":"Berlin","country":"DE"}'
 
 # einzelne Werte der Version 2 ändern (JSON Patch): nur wenn der Vorname noch "Max" ist, Ort ersetzen und E-Mail entfernen
 curl -i -X PATCH http://localhost:5180/api/addresses/<id> \
+  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json-patch+json" \
   -H 'If-Match: "2"' \
   -d '[{"op":"test","path":"/firstName","value":"Max"},{"op":"replace","path":"/city","value":"Hamburg"},{"op":"remove","path":"/email"}]'
 
 # Adresse löschen, egal in welcher Version
-curl -i -X DELETE http://localhost:5180/api/addresses/<id> -H 'If-Match: *'
+curl -i -X DELETE http://localhost:5180/api/addresses/<id> -H "Authorization: Bearer $TOKEN" -H 'If-Match: *'
 ```
 
 ## Tests und Coverage
@@ -80,6 +89,8 @@ Der HTML-Report liegt danach unter `coverage/report/index.html`. Mit `--threshol
 
 Die Integrationstests starten den Dienst über `AddressManagementWebApplicationFactory` im Speicher. Jede Instanz der Factory verwendet eine eigene InMemory-Datenbank mit eindeutigem Namen und, da sie einen eigenen Host startet, einen eigenen Output-Cache; Tests bzw. Fixtures, die eine eigene Factory erzeugen, beeinflussen sich dadurch nicht. Eine Deklaration `public partial class Program` ist dafür nicht nötig: Seit .NET 10 erzeugt ein Source-Generator die Klasse selbst als `public`, eine eigene Deklaration meldet der Analyzer ASP0027 als überflüssig.
 
+Tokens erzeugen die Tests selbst (`TestTokens`) und signieren sie mit einem festen Test-Schlüssel. Die Factory konfiguriert Issuer, Audience und Schlüssel in derselben Struktur wie `dotnet user-jwts` (`Authentication:Schemes:Bearer:ValidIssuer`, `ValidAudiences`, `SigningKeys`). Jeder Client der Factory (auch abgeleiteter Factories) sendet standardmäßig ein gültiges Token mit beiden Scopes; Tests für 401 und 403 erzeugen gezielt Clients ohne Token oder mit anderem Token (`CreateAnonymousClient`, `CreateClientWithToken`).
+
 ## CI
 
 Der Workflow [`build-test.yml`](.github/workflows/build-test.yml) läuft bei jedem Push auf `main` und jedem Pull Request gegen `main`: Build mit Warnungen als Fehler, danach `coverage.cs` mit mindestens 90 % Line-Coverage. Die Coverage-Zusammenfassung steht in der Job-Summary, der HTML-Report liegt als Artefakt `coverage-report` bereit. Neuere Läufe desselben Branches brechen laufende ab.
@@ -88,7 +99,7 @@ Der Workflow [`build-test.yml`](.github/workflows/build-test.yml) läuft bei jed
 
 | Projekt | Inhalt |
 |---|---|
-| `LKCode.AddressManagement.Service` | REST-Host: Controller, Problem Details, OpenAPI, Output Caching |
+| `LKCode.AddressManagement.Service` | REST-Host: Controller, Problem Details, OpenAPI, Output Caching, JWT-Authentifizierung und Autorisierung |
 | `LKCode.AddressManagement.Core.Addresses` | Geschäftslogik Adressen: Service, DTOs, Validierung, Mapping, Interfaces |
 | `LKCode.AddressManagement.Domain` | Entity `Address`, Normalisierung, Domain-Regeln |
 | `LKCode.AddressManagement.Data` | EF Core: DbContext, Konfiguration, Repository |
@@ -108,6 +119,7 @@ Das Repository-Interface liegt in `Core.Addresses`, die Implementierung in `Data
 | Microsoft.AspNetCore.OpenApi + Scalar | offizieller OpenAPI-Weg seit .NET 9, moderne Oberfläche |
 | Microsoft.AspNetCore.JsonPatch.SystemTextJson | offizielle JSON-Patch-Unterstützung (RFC 6902) auf Basis von System.Text.Json seit .NET 10 |
 | ASP.NET Core Output Caching | im Framework enthalten, serverseitiger Cache mit gezielter Invalidierung per Tag |
+| Microsoft.AspNetCore.Authentication.JwtBearer | offizielle JWT-Bearer-Authentifizierung, Konfiguration aus `appsettings` kompatibel mit `dotnet user-jwts` und Identity Providern |
 | Serilog | strukturiertes Logging |
 | NUnit, AwesomeAssertions, NSubstitute | Unit- und Integrationstests |
 | coverlet + ReportGenerator | Coverage-Messung und Reports |
@@ -184,9 +196,9 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Der Service wird über `AddCoreAddresses()` als Scoped registriert, passend zum Repository. Repository, `ITextNormalizer`, `TimeProvider` und Logging registrieren `AddData()`, `AddDomain()` und der Host.
 
 **Service-Host**
-- `Program.cs` registriert `AddDomain()`, `AddCoreAddresses()`, `AddData()`, `AddAddressCaching()` (Output Caching, siehe **Caching**) und `TimeProvider.System`. Die Controller nutzen System.Text.Json, den Standard von ASP.NET Core; Newtonsoft.Json wird nicht verwendet.
-- Das OpenAPI-Dokument (`Microsoft.AspNetCore.OpenApi`) ist der Vertrag der API und in jeder Umgebung unter `/openapi/v1.json` erreichbar. Die Oberfläche Scalar gibt es nur in `Development`.
-- Der Datenbankname steht in `appsettings.json` (`Data:DatabaseName`), ebenso die Ablaufzeit des Caches (`Caching:Expiration`).
+- `Program.cs` registriert `AddDomain()`, `AddCoreAddresses()`, `AddData()`, `AddAddressCaching()` (Output Caching, siehe **Caching**), `AddJwtBearerAuthentication()` und `AddAddressAuthorization()` (siehe **Authentifizierung und Autorisierung**) sowie `TimeProvider.System`. Die Controller nutzen System.Text.Json, den Standard von ASP.NET Core; Newtonsoft.Json wird nicht verwendet.
+- Das OpenAPI-Dokument (`Microsoft.AspNetCore.OpenApi`) ist der Vertrag der API und in jeder Umgebung unter `/openapi/v1.json` erreichbar, ohne Token. Die Oberfläche Scalar gibt es nur in `Development`, ebenfalls ohne Token; das Bearer-Schema ist dort vorausgewählt, sodass sich ein Token direkt eintragen lässt.
+- Der Datenbankname steht in `appsettings.json` (`Data:DatabaseName`), ebenso die Ablaufzeit des Caches (`Caching:Expiration`). Issuer und Audiences für `dotnet user-jwts` stehen in `appsettings.Development.json` (`Authentication:Schemes:Bearer`).
 
 **API**
 - Der `AddressesController` (`[ApiController]`, Route `api/addresses`) enthält keine Geschäftslogik. Er bereinigt den Request (`Sanitize()`), validiert ihn mit `IValidator<T>` und ruft dann `IAddressService` auf. Bei ungültigen Werten antwortet er mit **400** als `ValidationProblemDetails`, und zwar mit allen Feldfehlern auf einmal.
@@ -196,18 +208,18 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Validierungsmeldungen sind immer englisch. Die Lokalisierung von FluentValidation ist abgeschaltet (`ValidatorOptions.Global.LanguageManager.Enabled = false`), sonst richteten sich die Standardmeldungen nach der Sprache des Servers.
 - Der Request-Body von `POST` und `PUT` muss JSON sein (`[Consumes("application/json")]`), sonst kommt **415**. Wie überall in ASP.NET Core gelten auch Medientypen mit dem Suffix `+json` als JSON; das OpenAPI-Dokument nennt deshalb zusätzlich `application/*+json`. `PATCH` nimmt nur `application/json-patch+json` an (siehe **PATCH**).
 - `201 Created` enthält im `Location`-Header die absolute URL der neuen Adresse. Die URL entsteht über die benannte Route `GetAddressById`, weil MVC das Suffix `Async` aus Action-Namen entfernt und `CreatedAtAction(nameof(GetByIdAsync))` deshalb keine Route fände.
-- Unbekannte Ids und Werte, die keine GUID sind (Constraint `{id:guid}`), liefern **404** mit denselben Problem Details wie eine unbekannte Route.
+- Unbekannte Ids und Werte, die keine GUID sind (Constraint `{id:guid}`), liefern **404** mit denselben Problem Details wie eine unbekannte Route. Ohne gültiges Token kommt vorher **401**, ohne Scope **403** (siehe **Authentifizierung und Autorisierung**).
 - Die Liste (`GET /api/addresses`) hat die optionalen Filter `city` und `postalCode`. Beide suchen Teilstrings in den normalisierten Werten (siehe **Suche**): `sol`, `ingen` und `SOLin` finden `Solingen`, `Koeln` findet `Köln`. Leere Werte oder Werte nur aus Leerzeichen werden ignoriert, zwei Filter sind UND-verknüpft. Gibt es keinen Treffer, kommt **200** mit leerem `items`, nicht 404. Seite und Sortierung: siehe **Pagination und Sortierung**.
 - Die Filter werden bewusst nicht validiert. Ein Suchbegriff ist kein gespeicherter Wert, deshalb gilt die Maximallänge der Felder für ihn nicht. Beim Ort ginge das auch fachlich nicht, weil die Normalisierung Werte verlängern kann (ß→ss). Ein Filter, der zu nichts passt, liefert einfach eine leere Seite.
 - Die Parameter sind einzeln an der Action deklariert (nicht als `[FromQuery] AddressListQuery`). So heißen sie im OpenAPI-Dokument `city`, `postalCode`, `page`, `pageSize`, `sortBy` und `sortDirection`, und `Core.Addresses` braucht keine ASP.NET-Attribute.
 - `PUT /api/addresses/{id}` ist ein vollständiges Update: Alle Werte werden ersetzt, Bereinigung und Validierung laufen wie beim Anlegen. Fehlt die E-Mail oder ist sie leer, wird eine vorhandene E-Mail entfernt. `Id` und `CreatedAt` bleiben erhalten, `UpdatedAt` wird neu gesetzt. Die Antwort ist **200** mit der geänderten Adresse, ohne `Location`-Header.
 - `PUT` legt keine Adresse an: Ids vergibt der Server (GUID Version 7), eine unbekannte Id liefert **404**.
-- Prüfreihenfolge bei `PUT`: **415** (kein JSON) → **404** (unbekannte Id) → **428**/**400**/**412** (`If-Match`, siehe **Optimistic Concurrency**) → **400** (ungültiges JSON) → **400** (ungültige Werte). Die Id wird also vor dem Body geprüft; ein ungültiger Body ergibt bei unbekannter Id **404**.
+- Prüfreihenfolge bei `PUT`: **401** (kein gültiges Token) → **415** (kein JSON) → **403** (Scope fehlt) → **404** (unbekannte Id) → **428**/**400**/**412** (`If-Match`, siehe **Optimistic Concurrency**) → **400** (ungültiges JSON) → **400** (ungültige Werte). Die Id wird also vor dem Body geprüft; ein ungültiger Body ergibt bei unbekannter Id **404**.
 - Der automatische Model-State-Filter von `[ApiController]` ist abgeschaltet (`SuppressModelStateInvalidFilter`), denn er beantwortet ungültiges JSON mit **400**, bevor die Action läuft, also auch vor **404**, **428** und **412**. Die Actions prüfen den Model State deshalb selbst: `POST` sofort, `PUT` und `PATCH` erst nach den Vorbedingungen. Die Antwort ist dieselbe `ValidationProblemDetails` wie vorher.
 - `DELETE /api/addresses/{id}` markiert die Adresse als gelöscht (siehe **Soft-Delete**) und antwortet mit **204** ohne Body. Danach liefern `GET`, `PUT`, `PATCH` und erneutes `DELETE` für diese Id **404** mit denselben Problem Details wie für eine nie vergebene Id.
 
 **OpenAPI**
-- Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
+- Statuscodes und Content-Types stehen per `ProducesResponseType` an den Actions, **401**, **403** und **500** einmal am Controller. Die Beschreibungen kommen aus der XML-Doku der Actions (`<summary>`, `<remarks>`, `<param>`, `<response code="…">`).
 - Die `operationId`s kommen aus den Routennamen der Actions: `CreateAddress`, `GetAddressById`, `ListAddresses`, `UpdateAddress`, `PatchAddress` und `DeleteAddress`. Die Antwort **204** von `DELETE` hat keinen Body und deshalb kein Schema.
 - `LocationHeaderOperationTransformer` beschreibt den `Location`-Header jeder 201-Antwort, denn Attribute können keine Header beschreiben.
 - `ETagHeaderOperationTransformer` beschreibt den Pflicht-Header `ETag` (`pattern` `^"[1-9][0-9]*"$`) jeder Antwort, deren Body eine einzelne `AddressResponse` ist: `GET` by Id, `POST`, `PUT` und `PATCH`. Die Liste hat keinen `ETag`.
@@ -218,14 +230,15 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - `AddressListParametersOperationTransformer` beschreibt die Query-Parameter der Liste: `page` als `int32` mit `minimum` 1, `maximum` 2147483647 und `default` 1, `pageSize` als `int32` mit `minimum` 1, `maximum` 100 und `default` 20, `sortBy` und `sortDirection` als `enum` der kanonischen Werte mit `default` `lastName` bzw. `asc`. Ohne den Transformer wären die Zahlen auch als String beschrieben (die JSON-Optionen dürfen Zahlen aus Strings lesen), und die Sortierung hätte keine erlaubten Werte. Die Werte kommen aus `AddressListConstraints`, `AddressSortFields` und `SortDirections`.
 - `AddressListResponseSchemaTransformer` beschreibt `page`, `pageSize`, `totalCount` und `totalPages` von `AddressListResponse` als `int32` mit ihren Bereichen (`page` ≥ 1, `pageSize` 1–100, die Zählungen ≥ 0) und macht alle fünf Felder zu `required`.
 - `ProblemDetailsSchemaTransformer` beschreibt `ProblemDetails` und `ValidationProblemDetails` so, wie die API sie schreibt: `type`, `title`, `status` und `traceId` (bei Validierungsfehlern zusätzlich `errors`) sind immer enthalten, `status` ist eine Ganzzahl zwischen 100 und 599, `type` und `instance` sind URI-Referenzen. Ohne den Transformer fehlte `traceId`, und `status` wäre auch als String beschrieben, weil die JSON-Optionen Zahlen aus Strings lesen dürfen.
-- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die sechs Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`, `ETag`), den übrigen Antworten mit einer Adresse (`ETag`) und den **200**-Antworten der beiden `GET` (`Age`), **428** genau bei `PUT`, `PATCH` und `DELETE`, keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
+- `BearerSecuritySchemeDocumentTransformer` beschreibt das Security-Schema `Bearer` (`http`, `bearer`, `bearerFormat: JWT`) in den Komponenten. `SecurityRequirementOperationTransformer` setzt bei jeder geschützten Operation die Anforderung `Bearer` mit den Scopes ihrer Policy (OpenAPI 3.1 erlaubt solche Werte auch bei `http`-Schemas) und beschreibt den Pflicht-Header `WWW-Authenticate` der **401**-Antwort. Die Policy ermittelt er wie die Autorisierungs-Middleware (`AuthorizationPolicy.CombineAsync` einschließlich Fallback-Policy, `[AllowAnonymous]` wird beachtet); die Scopes kommen aus den `ScopeRequirement`s der Policy, also aus derselben Quelle wie zur Laufzeit. Eine Anforderung für das ganze Dokument gibt es nicht, denn OpenAPI-Dokument und Scalar sind ohne Token erreichbar.
+- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die sechs Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`, `ETag`), den übrigen Antworten mit einer Adresse (`ETag`), den **200**-Antworten der beiden `GET` (`Age`) und den **401**-Antworten (`WWW-Authenticate`), **428** genau bei `PUT`, `PATCH` und `DELETE`, das Security-Schema `Bearer` und bei jeder Operation die Anforderung mit ihrem Scope, keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
 - Fallstrick im XML-Kommentar-Generator von .NET 10: Er schreibt die Beschreibung jedes `<param>`, der kein Operation-Parameter ist, an den Request-Body, also auch die des `CancellationToken`. Der Body-Parameter wird deshalb als letzter dokumentiert.
 
 **Fehlerbehandlung**
 - Fehler werden als Problem Details nach RFC 7807 (bzw. Nachfolger RFC 9457) zurückgegeben.
 - Erwartbare Fälle (nicht gefunden, ungültige Eingabe) laufen über Rückgabewerte, Exceptions nur bei unerwarteten Fehlern.
 - Unerwartete Exceptions übersetzt der globale `ProblemDetailsExceptionHandler` (`IExceptionHandler`) in **500** mit Problem Details. Die Antwort enthält nur `type`, `title`, `status` und die `traceId`, über die sich der Eintrag im Log finden lässt; Message, Exception-Typ und Stacktrace gehen nicht nach außen, auch nicht in `Development`. Der Handler loggt die Exception vollständig auf `Error`, denn seit .NET 10 loggt die Middleware Exceptions nicht mehr, die ein Handler behandelt hat.
-- Fehlerantworten ohne Body (z. B. 404 für eine unbekannte Route) ergänzt `UseStatusCodePages()` um Problem Details.
+- Fehlerantworten ohne Body (z. B. 404 für eine unbekannte Route, 401 und 403 der Autorisierung) ergänzt `UseStatusCodePages()` um Problem Details.
 - Controller mit `[ApiController]` antworten auch Clients, die nur `text/html` akzeptieren, mit Problem Details. Für andere Endpunkte hält sich ASP.NET Core an den `Accept`-Header; ohne JSON antwortet es dort ohne Problem Details.
 - Client-Abbruch: Bricht der Client eine Anfrage ab, ist die folgende `OperationCanceledException` kein Fehler. In .NET 10 erkennt das bereits die `ExceptionHandlerMiddleware`, bevor sie einen `IExceptionHandler` aufruft: Sie setzt **499** (Client Closed Request) und loggt nur auf `Debug`. Das Serilog-Request-Log protokolliert den Abbruch mit Status 499 auf `Information`. Der Handler behandelt den Fall trotzdem selbst (Information-Log, 499, kein Body), damit er auch für sich allein korrekt ist. Eine `OperationCanceledException` ohne Client-Abbruch (z. B. ein interner Timeout) gilt als unerwarteter Fehler und ergibt 500.
 - Gelöschte Adressen liefern 404 wie unbekannte. Es ist nicht erkennbar, ob ein Datensatz existiert hat.
@@ -236,7 +249,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Die Version steht als `version` in jeder `AddressResponse`, auch in der Liste, damit Clients ohne zusätzliches `GET` ändern können. In keinem Request-DTO steht sie; ein Client kann sie also nicht setzen.
 - `GET` by Id, `POST`, `PUT` und `PATCH` liefern die Version als strong ETag im Header `ETag`, z. B. `"3"`. Die Liste hat keinen `ETag`, weil sie mehrere Versionen enthält.
 - `If-Match` ist bei `PUT`, `PATCH` und `DELETE` Pflicht. Erlaubt sind eine kommagetrennte Liste von ETags (auch über mehrere Header-Zeilen) oder `*`. Gelesen und verglichen wird mit `EntityTagHeaderValue` aus ASP.NET Core. `If-Match` vergleicht laut RFC 9110 immer strong, ein weak ETag wie `W/"3"` passt daher nie. `*` bedeutet „ändern, wenn vorhanden“ ohne Versionsprüfung durch den Client.
-- Prüfreihenfolge nach RFC 9110 (Abschnitt 13.2): **404** (unbekannte Id; Vorbedingungen werden ignoriert, wenn die Antwort ohne sie kein Erfolg wäre) → **428** (`If-Match` fehlt, RFC 6585) → **400** (`If-Match` ist leer, kein ETag oder enthält `*` neben anderen Werten; der Fehler steht unter dem Schlüssel `If-Match`) → **412** (kein ETag passt zur aktuellen Version) → **400** (Body ungültig) → bei `PATCH` **409** (`test` fehlgeschlagen). **415** kommt wie bisher vor allem anderen, weil `[Consumes]` vor der Action greift. Fehlerantworten haben keinen `ETag`.
+- Prüfreihenfolge nach RFC 9110 (Abschnitt 13.2): **404** (unbekannte Id; Vorbedingungen werden ignoriert, wenn die Antwort ohne sie kein Erfolg wäre) → **428** (`If-Match` fehlt, RFC 6585) → **400** (`If-Match` ist leer, kein ETag oder enthält `*` neben anderen Werten; der Fehler steht unter dem Schlüssel `If-Match`) → **412** (kein ETag passt zur aktuellen Version) → **400** (Body ungültig) → bei `PATCH` **409** (`test` fehlgeschlagen). **401**, **415** und **403** kommen vor allem anderen, weil Authentifizierung, `[Consumes]` und Autorisierung vor der Action greifen. Fehlerantworten haben keinen `ETag`.
 - Für **428** kennt MVC keine Standardwerte; `Program.cs` ergänzt `type` (RFC 6585, Abschnitt 3) und `title` in `ClientErrorMapping`, damit auch diese Problem Details vollständig sind.
 - Der Controller prüft `If-Match` gegen die gerade geladene Version. Damit dazwischen keine Änderung verloren geht, prüft zusätzlich die Datenbank: `Version` ist in der EF-Konfiguration ein Concurrency-Token. Das Repository setzt beim Speichern den Original-Wert auf die vom Client erwartete Version, EF Core speichert also nur, wenn die gespeicherte Version noch dieselbe ist. Bei `*` bleibt der Original-Wert die geladene Version, sodass auch dann eine gleichzeitige Änderung erkannt wird.
 - Die `DbUpdateConcurrencyException`, mit der EF Core einen fehlgeschlagenen Vergleich meldet, fängt das Repository ab und gibt sie als `ChangeStatus` zurück: `NotFound`, wenn die Adresse nicht gespeichert ist (`GetDatabaseValuesAsync` liefert `null`) oder inzwischen gelöscht wurde (`IsDeleted` in den gespeicherten Werten; `GetDatabaseValuesAsync` ignoriert den Query Filter), sonst `VersionMismatch`. Der Eintrag wird danach nicht mehr verfolgt. Die API antwortet mit **404** bzw. **412**.
@@ -256,7 +269,7 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Die Operationen werden vor dem Anwenden streng geprüft (`AddressPatchDocumentExtensions.ValidateOperations`), denn die Bibliothek ist an mehreren Stellen nachsichtig oder fehlerhaft: Ein fehlendes `op` behandelt sie als `add`, Groß-/Kleinschreibung bei `op` und in Pfaden ignoriert sie, ein fehlendes `path` oder `from` führt zu einer `ArgumentNullException` (also **500**), und bei `test` unterscheidet sie einen unbekannten Pfad nicht von einem abweichenden Wert. Erlaubt sind deshalb nur die sechs Operationen in Kleinbuchstaben, als Pfade nur die JSON Pointer der acht Felder mit exaktem Namen (`/firstName`, nicht `/FirstName`, RFC 6901 ist case-sensitiv) und als `value` nur ein String oder `null`. Alle Fehler kommen zusammen als **400**, jeweils unter dem JSON-Pfad im Patch-Dokument (`$[0].path`).
 - Ein fehlendes `value` kann die Bibliothek nicht von `null` unterscheiden; es wird wie `null` behandelt. Das OpenAPI-Schema verlangt `value` trotzdem, wie RFC 6902.
 - `test` vergleicht exakt, also ohne Bereinigung und mit Groß-/Kleinschreibung. Schlägt ein Test fehl, antwortet die API mit **409** (RFC 5789: Der Patch passt nicht zum Zustand der Ressource), und `detail` nennt Index und Pfad der Operation. Die Bibliothek wendet nach einem fehlgeschlagenen Test die weiteren Operationen trotzdem an. Das schadet nicht, weil die Kopie dann verworfen wird.
-- Prüfreihenfolge: **415** (kein JSON Patch) → **404** (unbekannte Id) → **428**/**400**/**412** (`If-Match`) → **400** (ungültiges JSON) → **400** (ungültige Operationen) → **409** (Test fehlgeschlagen) → **400** (ungültige Werte).
+- Prüfreihenfolge: **401** (kein gültiges Token) → **415** (kein JSON Patch) → **403** (Scope fehlt) → **404** (unbekannte Id) → **428**/**400**/**412** (`If-Match`) → **400** (ungültiges JSON) → **400** (ungültige Operationen) → **409** (Test fehlgeschlagen) → **400** (ungültige Werte).
 - Ein leeres Patch-Dokument `[]` ist gültig und wirkt wie `PUT` mit den aktuellen Werten; `UpdatedAt` wird neu gesetzt.
 
 **Caching**
@@ -264,13 +277,24 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Tags (`AddressCacheTags`): Eine einzelne Adresse trägt `address-{id}`, jede Seite der Liste `addresses`. `AddressIdTagPolicy` schreibt die Id im Tag immer klein und mit Bindestrichen, auch wenn der Request sie groß oder in einem anderen GUID-Format enthält (`{id:guid}` akzeptiert z. B. auch `N` und `B`). Ohne gültige Id cacht die Policy nichts, denn einen Eintrag ohne Tag könnte keine Änderung entfernen.
 - Die Liste variiert nach allen Query-Parametern (`SetVaryByQuery("*")`). Jede Kombination aus Filter, Seite und Sortierung ist ein eigener Eintrag, ebenso unbekannte Parameter und andere Schreibweisen eines Werts (`city=Köln` und `city=köln`).
 - Invalidierung: Nach einer erfolgreichen Änderung entfernt der Controller die betroffenen Einträge mit `IOutputCacheStore.EvictByTagAsync`. `POST` (**201**) entfernt `addresses`, denn eine neue Adresse kann auf jeder Seite auftauchen; gecachte einzelne Adressen bleiben erhalten. `PUT`, `PATCH` (**200**) und `DELETE` (**204**) entfernen `address-{id}` und `addresses`. Fehlgeschlagene Änderungen (400, 404, 409, 412, 415, 428) lassen den Cache unverändert.
-- Beide Policies bauen auf der Standard-Policy von ASP.NET Core auf. Gecacht werden deshalb nur Antworten mit **200**, nie Fehlerantworten wie 400, 404 oder 500. Requests mit `Authorization`-Header und Antworten mit Cookies werden ebenfalls nicht gecacht.
+- Beide Policies ersetzen die Standard-Policy von ASP.NET Core durch `AuthenticatedDefaultPolicy` (`excludeDefaultPolicy: true`). Die Standard-Policy cacht Requests mit `Authorization`-Header oder angemeldetem Benutzer nie; da jeder Request ein Token trägt, wäre der Cache sonst wirkungslos. `AuthenticatedDefaultPolicy` übernimmt alle übrigen Regeln der Standard-Policy: nur `GET` und `HEAD`, Variation nach allen Query-Parametern, Request-Locking, und gespeichert werden nur Antworten mit **200** ohne Cookies, nie Fehlerantworten wie 400, 401, 403, 404 oder 500.
+- Ein Eintrag wird von allen Benutzern mit `addresses:read` geteilt; der Cache-Key enthält weder Benutzer noch Token. Das ist sicher, weil Authentifizierung und Autorisierung vor dem Cache laufen (ein Request ohne gültiges Token oder ohne Scope bekommt nie eine gecachte Antwort) und die Antworten nicht vom Benutzer abhängen. Hingen sie künftig vom Benutzer ab, müsste der Cache zusätzlich nach Benutzer variieren.
 - Eine Antwort aus dem Cache trägt den Header `Age` mit den Sekunden seit dem Speichern (RFC 9111, Abschnitt 5.1). `AgeHeaderOperationTransformer` beschreibt ihn im OpenAPI-Dokument.
 - Bedingte Requests (`If-None-Match`, `If-Modified-Since`) beantwortet der Cache nie (`ConditionalRequestBypassPolicy`). Die Middleware würde sonst mit **304** antworten, aber nur, wenn gerade ein passender Eintrag existiert, während die Actions die Header nicht auswerten. So gibt es nie 304, und die Antwort hängt nicht vom Zustand des Caches ab. Die frische Antwort wird trotzdem gespeichert.
 - Die Ablaufzeit ist nur eine Absicherung: `Caching:Expiration` in `appsettings.json`, Standard `00:05:00`. Erlaubt sind Werte größer 0 und höchstens ein Tag; sonst startet die Anwendung nicht (`ValidateOnStart`). Sehr große Werte würden im Speicher-Cache überlaufen und bei jedem `GET` zu **500** führen. Die Ablaufzeit begrenzt, wie lange eine Antwort veraltet sein kann, wenn die Invalidierung nicht greift. Beispiel: Ein `GET` liest eine Adresse, ein `PUT` ändert sie und leert den Cache, danach speichert das `GET` den alten Stand.
-- Position in der Pipeline: `UseOutputCache()` steht hinter Exception-Handler und Status-Code-Pages und vor den Endpunkten. Authentifizierung und Autorisierung gehören davor, damit der Cache nie einen Request beantwortet, der abgelehnt würde.
+- Position in der Pipeline: `UseOutputCache()` steht hinter Exception-Handler, Status-Code-Pages, `UseAuthentication()` und `UseAuthorization()` und vor den Endpunkten. So beantwortet der Cache nie einen Request, der abgelehnt würde.
 - Der Cache liegt im Speicher der jeweiligen Instanz (Standard-Store von ASP.NET Core). Bei mehreren Instanzen hätte jede ihren eigenen Cache, und eine Änderung über eine Instanz entfernte die Einträge der anderen nicht. Dann wäre ein verteilter Store nötig, z. B. Redis mit `Microsoft.AspNetCore.OutputCaching.StackExchangeRedis` (`AddStackExchangeRedisOutputCache`). Policies, Tags und Invalidierung bleiben dabei gleich.
-- `AddressOutputCacheTests` erkennt einen Treffer am Header `Age` und prüft Tags und Ablaufzeit über einen aufzeichnenden Store (`RecordingOutputCacheStore`). Jeder Test hat einen eigenen Host und damit einen leeren Cache.
+- `AddressOutputCacheTests` erkennt einen Treffer am Header `Age` und prüft Tags und Ablaufzeit über einen aufzeichnenden Store (`RecordingOutputCacheStore`). Jeder Test hat einen eigenen Host und damit einen leeren Cache. Die Requests sind authentifiziert (Standard-Token der Factory); weitere Tests zeigen, dass eine gecachte Antwort ohne gültiges Token mit **401** und ohne Scope mit **403** abgelehnt wird, mit einem anderen Lese-Token dagegen aus dem Cache kommt.
+
+**Authentifizierung und Autorisierung**
+- JWT-Bearer-Authentifizierung mit `Microsoft.AspNetCore.Authentication.JwtBearer`, registriert über `AddJwtBearerAuthentication()`; `Bearer` ist das Standard-Schema. Die Einstellungen kommen aus `Authentication:Schemes:Bearer` (`ValidIssuer`/`ValidIssuers`, `ValidAudiences`/`ValidAudience`, `SigningKeys`, `Authority` usw.), also aus genau dem Abschnitt, den `dotnet user-jwts` schreibt. Im Code steht nur, was nicht konfigurierbar sein soll.
+- Startprüfung: Ohne mindestens einen Issuer und eine Audience startet die Anwendung nicht (`ValidateOnStart`, `OptionsValidationException` mit dem fehlenden Schlüssel). ASP.NET Core schaltet die Prüfung von Issuer bzw. Audience sonst stillschweigend ab, sobald der Abschnitt existiert, der Wert aber fehlt (z. B. nur `Authority`). Signaturschlüssel werden nicht verlangt: Ohne Schlüssel (z. B. frischer Clone ohne `dotnet user-jwts`) startet die Anwendung, lehnt aber jedes Token mit **401** ab. `appsettings.json` enthält keine JWT-Einstellungen; in `Production` startet die Anwendung deshalb nur mit konfiguriertem Identity Provider.
+- Policies: `AddAddressAuthorization()` registriert `AddressesRead` (Scope `addresses:read`, beide `GET`) und `AddressesWrite` (`addresses:write`, `POST`, `PUT`, `PATCH`, `DELETE`); die Actions verweisen per `[Authorize(Policy = …)]` darauf, die Namen stehen in `AddressAuthorizationPolicyNames`, die Scopes in `AddressScopes`. Jede Policy verlangt einen angemeldeten Benutzer und ein `ScopeRequirement`, das der `ScopeAuthorizationHandler` prüft.
+- Scope-Claims sind `scope` (RFC 8693/9068, `dotnet user-jwts`, Keycloak) und `scp` (Entra ID). Ein Claim darf einen Scope oder mehrere durch Leerzeichen getrennte enthalten; ein Token darf auch mehrere Scope-Claims haben (JSON-Array, so schreibt `dotnet user-jwts` mehrere `--scope`). Verglichen wird exakt, auch die Groß-/Kleinschreibung (RFC 6749, Abschnitt 3.3): `addresses:readonly` gewährt nicht `addresses:read`, Kommas trennen keine Scopes, andere Claim-Typen wie `roles` zählen nicht. Damit die Claim-Typen so bleiben wie im Token, ist das Mapping eingehender Claims abgeschaltet (`MapInboundClaims = false`); sonst würde ASP.NET Core `scp` in einen URI-Typ umbenennen.
+- Fallback-Policy: Jeder Endpunkt ohne eigene Policy verlangt einen angemeldeten Benutzer (secure by default). Nur OpenAPI-Dokument und Scalar sind per `AllowAnonymous()` freigegeben. Folge: Eine unbekannte Route liefert ohne Token **401**, mit Token **404**.
+- **401** (kein, abgelaufenes, noch nicht gültiges, unsigniertes oder fremd signiertes Token, falscher Issuer, falsche Audience) und **403** (gültiges Token ohne Scope) erzeugen JwtBearer-Handler und Autorisierungs-Middleware ohne Body; `UseStatusCodePages()` ergänzt Problem Details mit `traceId`. **401** trägt den Header `WWW-Authenticate: Bearer`, bei einem ungültigen Token zusätzlich `error="invalid_token"` und eine Beschreibung (RFC 6750).
+- Pipeline: `UseAuthentication()` und `UseAuthorization()` stehen explizit hinter `UseStatusCodePages()` und vor `UseOutputCache()`. Ohne expliziten Aufruf setzt `WebApplication` sie an den Anfang der Pipeline; dann hätten 401 und 403 keine Problem Details.
+- Reihenfolge: Authentifizierung und Autorisierung laufen vor der Action. **401** und **403** verraten deshalb nichts über eine Adresse; unbekannte und vorhandene Ids verhalten sich gleich. Ein falscher Content-Type ergibt bei angemeldetem Benutzer **415** vor **403**: Das Routing wählt dafür einen eigenen Endpunkt ohne Policy, für den nur die Fallback-Policy gilt.
 
 **Logging**
 - Strukturiertes Logging über `ILogger` mit Message-Templates. Die Log-Methoden erzeugt der Source-Generator `[LoggerMessage]`: Die Templates werden beim Build geprüft, und die Argumente werden nur verarbeitet, wenn das Level aktiv ist.
@@ -283,9 +307,9 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 
 ## Authentifizierung
 
-Die API ist per JWT geschützt. Scopes: `addresses:read` für GET, `addresses:write` für POST, PUT, PATCH und DELETE.
+Die API ist per JWT (Bearer) geschützt. Scopes: `addresses:read` für `GET`, `addresses:write` für `POST`, `PUT`, `PATCH` und `DELETE`. Ohne gültiges Token antwortet sie mit `401`, ohne passenden Scope mit `403`, jeweils als Problem Details. OpenAPI-Dokument und Scalar sind ohne Token erreichbar.
 
-Für die Entwicklung erzeugt das im .NET SDK enthaltene Werkzeug `dotnet user-jwts` Tokens. Der Signaturschlüssel liegt dabei in den lokalen User Secrets, nicht im Repository.
+Für die Entwicklung erzeugt das im .NET SDK enthaltene Werkzeug `dotnet user-jwts` Tokens. Der Signaturschlüssel liegt dabei in den lokalen User Secrets (`UserSecretsId` in der Service-`.csproj`), nicht im Repository. Issuer (`dotnet-user-jwts`) und Audiences (die URLs aus `launchSettings.json`) stehen bereits in `appsettings.Development.json`.
 
 ```bash
 # Token mit Lese- und Schreibrechten
@@ -294,18 +318,39 @@ dotnet user-jwts create --project src/LKCode.AddressManagement.Service --scope "
 # Token nur mit Leserechten (zum Ausprobieren von 403)
 dotnet user-jwts create --project src/LKCode.AddressManagement.Service --scope "addresses:read"
 
+# nur das Token ausgeben, z. B. in eine Variable
+TOKEN=$(dotnet user-jwts create --project src/LKCode.AddressManagement.Service --scope "addresses:read" --scope "addresses:write" -o token)
+
 # erzeugte Tokens anzeigen
 dotnet user-jwts list --project src/LKCode.AddressManagement.Service
 dotnet user-jwts print <id> --project src/LKCode.AddressManagement.Service
 ```
 
-Verwendung in Scalar: Token im Auth-Feld eintragen. Mit `curl`:
+Beim ersten `create` legt das Werkzeug den Schlüssel an. Außerdem schreibt es `appsettings.Development.json` neu; die Werte stimmen bereits, es entfällt nur der abschließende Zeilenumbruch, den die `.editorconfig` verlangt. Diese Änderung verwerfen: `git checkout -- src/LKCode.AddressManagement.Service/appsettings.Development.json`.
+
+Verwendung in Scalar (`http://localhost:5180/scalar`): Das Schema `Bearer` ist vorausgewählt, das Token wird im Bereich zur Authentifizierung eingetragen. Mit `curl`:
 
 ```bash
-curl -H "Authorization: Bearer <token>" https://localhost:<port>/api/addresses
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:5180/api/addresses
 ```
 
-In Produktion kommen die Tokens von einem Identity Provider (z. B. Entra ID oder Keycloak). Dafür ändert sich nur die Konfiguration, nicht der Code.
+Ein Token enthält die Scopes im Claim `scope` oder `scp`, als Array (wie bei `dotnet user-jwts`) oder durch Leerzeichen getrennt (`"scope": "addresses:read addresses:write"`).
+
+In Produktion kommen die Tokens von einem Identity Provider (z. B. Entra ID oder Keycloak). Dafür ändert sich nur die Konfiguration, nicht der Code, z. B.:
+
+```json
+"Authentication": {
+  "Schemes": {
+    "Bearer": {
+      "Authority": "https://login.example.com/realms/addresses",
+      "ValidIssuer": "https://login.example.com/realms/addresses",
+      "ValidAudiences": [ "address-management-api" ]
+    }
+  }
+}
+```
+
+Mit `Authority` lädt ASP.NET Core die Signaturschlüssel aus den OpenID-Connect-Metadaten des Identity Providers. `ValidIssuer` und `ValidAudiences` sind Pflicht; fehlen sie, startet die Anwendung nicht (siehe **Authentifizierung und Autorisierung**).
 
 ## Docker (eigener bonus - optional)
 

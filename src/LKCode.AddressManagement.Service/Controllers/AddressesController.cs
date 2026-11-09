@@ -9,9 +9,11 @@ using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
+using LKCode.AddressManagement.Service.AuthorizationPolicies;
 using LKCode.AddressManagement.Service.Extensions;
 using LKCode.AddressManagement.Service.OutputCachePolicies;
 using LKCode.AddressManagement.Service.Preconditions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -37,10 +39,20 @@ namespace LKCode.AddressManagement.Service.Controllers;
 /// <remarks>
 /// The XML documentation of the actions is the description of the endpoints in the OpenAPI document: the summary,
 /// the remarks, the parameters and a <c>response</c> element for each status code.
+///
+/// Every endpoint requires a JWT bearer token with the scope `addresses:read` to read or `addresses:write` to
+/// change addresses (see <see cref="AddressAuthorizationPolicyNames"/>). The authentication and the authorization run
+/// before the action, so `401 Unauthorized` and `403 Forbidden` do not depend on the address.
 /// </remarks>
 /// <exception cref="ArgumentNullException">A parameter is <see langword="null"/>.</exception>
 [ApiController]
 [Route("api/addresses")]
+[ProducesResponseType<ProblemDetails>(
+    StatusCodes.Status401Unauthorized,
+    MediaTypeNames.Application.ProblemJson)]
+[ProducesResponseType<ProblemDetails>(
+    StatusCodes.Status403Forbidden,
+    MediaTypeNames.Application.ProblemJson)]
 [ProducesResponseType<ProblemDetails>(
     StatusCodes.Status500InternalServerError,
     MediaTypeNames.Application.ProblemJson)]
@@ -109,11 +121,21 @@ public sealed class AddressesController(
     /// cached. Every change and the deletion of the address remove it from the cache, so they take effect
     /// immediately. The headers `If-None-Match` and `If-Modified-Since` are not evaluated: such a request always gets
     /// the current address with `200 OK`, never `304 Not Modified`.
+    ///
+    /// Requires an access token with the scope `addresses:read`. A missing or invalid token results in
+    /// `401 Unauthorized`, a token without the scope in `403 Forbidden`. Both are checked before the address is
+    /// looked up, so they do not reveal whether it exists.
     /// </remarks>
     /// <response code="200">The address; the `ETag` header contains its version.</response>
+    /// <response code="401">
+    /// The request has no valid access token: it is missing, expired or not yet valid, has no valid signature of a
+    /// trusted key, or was issued by another issuer or for another audience.
+    /// </response>
+    /// <response code="403">The access token does not grant the scope `addresses:read`.</response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet("{id:guid}", Name = GetByIdRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Read)]
     [OutputCache(PolicyName = AddressOutputCachePolicyNames.ById)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
@@ -174,13 +196,22 @@ public sealed class AddressesController(
     /// removes all pages from the cache, so they take effect immediately. The headers `If-None-Match` and
     /// `If-Modified-Since` are not evaluated: such a request always gets the current page with `200 OK`, never
     /// `304 Not Modified`.
+    ///
+    /// Requires an access token with the scope `addresses:read`. A missing or invalid token results in
+    /// `401 Unauthorized`, a token without the scope in `403 Forbidden`, before the parameters are checked.
     /// </remarks>
     /// <response code="200">
     /// The page of the matching addresses; `items` is empty if none matches or the page is behind the end.
     /// </response>
     /// <response code="400">A paging or sorting parameter is invalid.</response>
+    /// <response code="401">
+    /// The request has no valid access token: it is missing, expired or not yet valid, has no valid signature of a
+    /// trusted key, or was issued by another issuer or for another audience.
+    /// </response>
+    /// <response code="403">The access token does not grant the scope `addresses:read`.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet(Name = ListRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Read)]
     [OutputCache(PolicyName = AddressOutputCachePolicyNames.List)]
     [ProducesResponseType<AddressListResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -228,17 +259,27 @@ public sealed class AddressesController(
     /// address is treated as missing. All validation errors are returned together, keyed by the name of the field,
     /// e.g. `firstName`. Errors in the JSON itself are keyed by their JSON path, e.g. `$.firstName`. A new address
     /// has the version 1.
+    ///
+    /// Requires an access token with the scope `addresses:write`. The checks run in this order: a missing or invalid
+    /// token results in `401 Unauthorized`, a body that is not JSON in `415 Unsupported Media Type`, a token without
+    /// the scope in `403 Forbidden`; only then the body is validated.
     /// </remarks>
     /// <response code="201">
     /// The address was created; the `Location` header contains its URL, the `ETag` header its version.
     /// </response>
     /// <response code="400">The body is no valid JSON object of an address or contains invalid values.</response>
+    /// <response code="401">
+    /// The request has no valid access token: it is missing, expired or not yet valid, has no valid signature of a
+    /// trusted key, or was issued by another issuer or for another audience.
+    /// </response>
+    /// <response code="403">The access token does not grant the scope `addresses:write`.</response>
     /// <response code="415">The body is not JSON.</response>
     /// <response code="500">An unexpected error occurred.</response>
     /// <exception cref="ArgumentNullException">
     /// <paramref name="request"/> is <see langword="null"/> although the model state is valid.
     /// </exception>
     [HttpPost(Name = CreateRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status201Created, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -296,8 +337,10 @@ public sealed class AddressesController(
     /// The `If-Match` header is required and contains the `ETag` of the version to change, e.g. `"3"`, or `*` to
     /// change any version. Entity tags are compared strongly: a weak entity tag such as `W/"3"` never matches.
     ///
-    /// The checks run in this order (RFC 9110, section 13.2.2): an unknown id or an id that is no GUID results in
-    /// `404 Not Found`, like an unknown route; a missing `If-Match` header in `428 Precondition Required`; an
+    /// The checks run in this order (RFC 9110, section 13.2.2): a missing or invalid access token results in
+    /// `401 Unauthorized`; a body of another media type in `415 Unsupported Media Type`; a token without the scope
+    /// `addresses:write` in `403 Forbidden`; an unknown id or an id that is no GUID in `404 Not Found`, like an
+    /// unknown route; a missing `If-Match` header in `428 Precondition Required`; an
     /// `If-Match` header that is neither `*` nor a list of entity tags in `400 Bad Request`; an `If-Match` header
     /// without the current version in `412 Precondition Failed`; only then an invalid body in `400 Bad Request`. A
     /// change by someone else between these checks and the saving also results in `412 Precondition Failed`.
@@ -307,6 +350,11 @@ public sealed class AddressesController(
     /// The `If-Match` header is invalid, or the body is no valid JSON object of an address or contains invalid
     /// values.
     /// </response>
+    /// <response code="401">
+    /// The request has no valid access token: it is missing, expired or not yet valid, has no valid signature of a
+    /// trusted key, or was issued by another issuer or for another audience.
+    /// </response>
+    /// <response code="403">The access token does not grant the scope `addresses:write`.</response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="412">
     /// The `If-Match` header does not contain the current version of the address; it was not changed.
@@ -318,6 +366,7 @@ public sealed class AddressesController(
     /// <paramref name="request"/> is <see langword="null"/> although the model state is valid.
     /// </exception>
     [HttpPut("{id:guid}", Name = UpdateRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -382,8 +431,10 @@ public sealed class AddressesController(
     /// The `If-Match` header is required and contains the `ETag` of the version to change, e.g. `"3"`, or `*` to
     /// change any version. Entity tags are compared strongly: a weak entity tag such as `W/"3"` never matches.
     ///
-    /// The checks run in this order (RFC 9110, section 13.2.2): an unknown id or an id that is no GUID results in
-    /// `404 Not Found`, like an unknown route; a missing `If-Match` header in `428 Precondition Required`; an
+    /// The checks run in this order (RFC 9110, section 13.2.2): a missing or invalid access token results in
+    /// `401 Unauthorized`; a body of another media type in `415 Unsupported Media Type`; a token without the scope
+    /// `addresses:write` in `403 Forbidden`; an unknown id or an id that is no GUID in `404 Not Found`, like an
+    /// unknown route; a missing `If-Match` header in `428 Precondition Required`; an
     /// `If-Match` header that is neither `*` nor a list of entity tags in `400 Bad Request`; an `If-Match` header
     /// without the current version in `412 Precondition Failed`. Only then the body is checked: errors in the patch
     /// document itself result in `400 Bad Request` with the errors keyed by their JSON path, e.g. `$[0].path`, a
@@ -396,6 +447,11 @@ public sealed class AddressesController(
     /// The `If-Match` header is invalid, the body is no valid JSON Patch document for an address, or the changed
     /// values are invalid.
     /// </response>
+    /// <response code="401">
+    /// The request has no valid access token: it is missing, expired or not yet valid, has no valid signature of a
+    /// trusted key, or was issued by another issuer or for another audience.
+    /// </response>
+    /// <response code="403">The access token does not grant the scope `addresses:write`.</response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="409">A `test` operation failed; the address was not changed.</response>
     /// <response code="412">
@@ -408,6 +464,7 @@ public sealed class AddressesController(
     /// <paramref name="patchDocument"/> is <see langword="null"/> although the model state is valid.
     /// </exception>
     [HttpPatch("{id:guid}", Name = PatchRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [Consumes(JsonPatchMediaType)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -484,8 +541,9 @@ public sealed class AddressesController(
     /// The `If-Match` header is required and contains the `ETag` of the version to delete, e.g. `"3"`, or `*` to
     /// delete any version. Entity tags are compared strongly: a weak entity tag such as `W/"3"` never matches.
     ///
-    /// The checks run in this order (RFC 9110, section 13.2.2): an unknown id or an id that is no GUID results in
-    /// `404 Not Found`, like an unknown route; a missing `If-Match` header in `428 Precondition Required`; an
+    /// The checks run in this order (RFC 9110, section 13.2.2): a missing or invalid access token results in
+    /// `401 Unauthorized`; a token without the scope `addresses:write` in `403 Forbidden`; an unknown id or an id
+    /// that is no GUID in `404 Not Found`, like an unknown route; a missing `If-Match` header in `428 Precondition Required`; an
     /// `If-Match` header that is neither `*` nor a list of entity tags in `400 Bad Request`; an `If-Match` header
     /// without the current version in `412 Precondition Failed`. A change by someone else between these checks and
     /// the deletion also results in `412 Precondition Failed`.
@@ -495,6 +553,11 @@ public sealed class AddressesController(
     /// </remarks>
     /// <response code="204">The address was deleted.</response>
     /// <response code="400">The `If-Match` header is invalid.</response>
+    /// <response code="401">
+    /// The request has no valid access token: it is missing, expired or not yet valid, has no valid signature of a
+    /// trusted key, or was issued by another issuer or for another audience.
+    /// </response>
+    /// <response code="403">The access token does not grant the scope `addresses:write`.</response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="412">
     /// The `If-Match` header does not contain the current version of the address; it was not deleted.
@@ -502,6 +565,7 @@ public sealed class AddressesController(
     /// <response code="428">The `If-Match` header is missing.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpDelete("{id:guid}", Name = DeleteRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ValidationProblemDetails>(
         StatusCodes.Status400BadRequest,

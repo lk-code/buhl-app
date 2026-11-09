@@ -70,6 +70,36 @@ public class ErrorHandlingTests
         body.GetProperty("traceId").GetString().Should().NotBeNullOrWhiteSpace();
     }
 
+    [TestCase("GET", "/does-not-exist")]
+    [TestCase("POST", "/does-not-exist")]
+    [TestCase("DELETE", "/api/unknown/0198f2a4-6e0b-7c3d-9a1e-5b4c3d2e1f00")]
+    public async Task SendAsync_UnknownRouteWithoutToken_Returns401WithProblemDetails(string method, string path)
+    {
+        // Arrange
+        using HttpClient client = _factory.CreateAnonymousClient();
+        using var request = new HttpRequestMessage(new HttpMethod(method), path);
+
+        // Act
+        using HttpResponseMessage response = await client.SendAsync(request);
+
+        // Assert
+        await response.ShouldBeUnauthorizedProblemAsync();
+        response.Headers.WwwAuthenticate.Should().ContainSingle().Which.Scheme.Should().Be("Bearer");
+    }
+
+    [Test]
+    public async Task GetAsync_UnexpectedExceptionWithoutToken_Returns401()
+    {
+        // Arrange
+        using HttpClient client = _throwingFactory.CreateAnonymousClient();
+
+        // Act
+        using HttpResponseMessage response = await client.GetAsync(ThrowingController.Path);
+
+        // Assert
+        await response.ShouldBeUnauthorizedProblemAsync();
+    }
+
     [Test]
     public async Task GetAsync_UnexpectedException_Returns500()
     {
