@@ -66,19 +66,24 @@ public static class ServiceCollectionExtensions
             {
                 outputCacheOptions.DefaultExpirationTimeSpan = cachingOptions.Value.Expiration;
 
-                // Both policies extend the default policy: only GET and HEAD requests without authorization and
-                // only responses with 200 OK and without cookies are cached.
+                // Both policies replace the default policy, which never caches authenticated requests, with the
+                // AuthenticatedDefaultPolicy: only GET and HEAD requests, also with authorization, and only responses
+                // with 200 OK and without cookies are cached. The authorization runs before the output cache.
                 outputCacheOptions.AddPolicy(
                     AddressOutputCachePolicyNames.ById,
                     policy => policy
+                        .AddPolicy<AuthenticatedDefaultPolicy>()
                         .AddPolicy<ConditionalRequestBypassPolicy>()
-                        .AddPolicy<AddressIdTagPolicy>());
+                        .AddPolicy<AddressIdTagPolicy>(),
+                    excludeDefaultPolicy: true);
                 outputCacheOptions.AddPolicy(
                     AddressOutputCachePolicyNames.List,
                     policy => policy
+                        .AddPolicy<AuthenticatedDefaultPolicy>()
                         .AddPolicy<ConditionalRequestBypassPolicy>()
                         .SetVaryByQuery("*")
-                        .Tag(AddressCacheTags.List));
+                        .Tag(AddressCacheTags.List),
+                    excludeDefaultPolicy: true);
             });
 
         return services;

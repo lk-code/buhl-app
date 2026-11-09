@@ -9,9 +9,11 @@ using LKCode.AddressManagement.Core.Addresses.Dtos;
 using LKCode.AddressManagement.Core.Addresses.Mappings;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
+using LKCode.AddressManagement.Service.AuthorizationPolicies;
 using LKCode.AddressManagement.Service.Extensions;
 using LKCode.AddressManagement.Service.OutputCachePolicies;
 using LKCode.AddressManagement.Service.Preconditions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
@@ -114,6 +116,7 @@ public sealed class AddressesController(
     /// <response code="404">There is no address with the id.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet("{id:guid}", Name = GetByIdRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Read)]
     [OutputCache(PolicyName = AddressOutputCachePolicyNames.ById)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
@@ -181,6 +184,7 @@ public sealed class AddressesController(
     /// <response code="400">A paging or sorting parameter is invalid.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet(Name = ListRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Read)]
     [OutputCache(PolicyName = AddressOutputCachePolicyNames.List)]
     [ProducesResponseType<AddressListResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -239,6 +243,7 @@ public sealed class AddressesController(
     /// <paramref name="request"/> is <see langword="null"/> although the model state is valid.
     /// </exception>
     [HttpPost(Name = CreateRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status201Created, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -318,6 +323,7 @@ public sealed class AddressesController(
     /// <paramref name="request"/> is <see langword="null"/> although the model state is valid.
     /// </exception>
     [HttpPut("{id:guid}", Name = UpdateRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [Consumes(MediaTypeNames.Application.Json)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -408,6 +414,7 @@ public sealed class AddressesController(
     /// <paramref name="patchDocument"/> is <see langword="null"/> although the model state is valid.
     /// </exception>
     [HttpPatch("{id:guid}", Name = PatchRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [Consumes(JsonPatchMediaType)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
@@ -502,6 +509,7 @@ public sealed class AddressesController(
     /// <response code="428">The `If-Match` header is missing.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpDelete("{id:guid}", Name = DeleteRouteName)]
+    [Authorize(Policy = AddressAuthorizationPolicyNames.Write)]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType<ValidationProblemDetails>(
         StatusCodes.Status400BadRequest,

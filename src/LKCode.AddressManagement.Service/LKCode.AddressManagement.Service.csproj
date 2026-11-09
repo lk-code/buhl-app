@@ -1,5 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <PropertyGroup>
+    <!-- The user secrets hold the signing key of `dotnet user-jwts` in development. -->
+    <UserSecretsId>2d6f7c70-3681-498a-a19b-1f486362f65a</UserSecretsId>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
     <PackageReference Include="Microsoft.AspNetCore.JsonPatch.SystemTextJson" />

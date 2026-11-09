@@ -50,7 +50,9 @@ builder.Services
     .AddDomain()
     .AddCoreAddresses()
     .AddData(builder.Configuration)
-    .AddAddressCaching(builder.Configuration);
+    .AddAddressCaching(builder.Configuration)
+    .AddJwtBearerAuthentication()
+    .AddAddressAuthorization();
 
 // System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used. MVC does not treat
 // non-nullable properties as implicitly required: requests are sanitized and then validated completely by
@@ -97,20 +99,27 @@ app.UseSerilogRequestLogging(options => options.Logger = app.Services.GetRequire
 // Handles all exceptions before the developer exception page, so no details are exposed in any environment.
 app.UseExceptionHandler();
 
-// Writes Problem Details for error responses without a body, e.g. 404 for an unknown route.
+// Writes Problem Details for error responses without a body, e.g. 404 for an unknown route and 401 or 403 of the
+// authorization below.
 app.UseStatusCodePages();
 
-// Behind everything that decides whether a request may be answered at all, e.g. authentication and authorization,
+// Called explicitly, so that they run behind the status code pages; otherwise WebApplication would add them at the
+// start of the pipeline, and 401 and 403 would have no Problem Details. Every endpoint requires an authenticated user
+// unless it allows anonymous access (fallback policy); the address endpoints additionally require their scope.
+app.UseAuthentication();
+app.UseAuthorization();
+
+// Behind everything that decides whether a request may be answered at all, i.e. authentication and authorization,
 // so that the cache never answers a request that would be rejected. Only the endpoints with an output cache policy
 // are cached; the policies and the expiration are registered by AddAddressCaching().
 app.UseOutputCache();
 
-// The OpenAPI document is the contract of the API and is therefore available in every environment.
-app.MapOpenApi();
+// The OpenAPI document is the contract of the API and is therefore available in every environment, without a token.
+app.MapOpenApi().AllowAnonymous();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapScalarApiReference();
+    app.MapScalarApiReference().AllowAnonymous();
 }
 
 app.MapControllers();
