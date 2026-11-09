@@ -250,7 +250,7 @@ public class ServiceCollectionExtensionsTests
 
         // Assert
         parameters.ValidateIssuer.Should().BeTrue();
-        parameters.ValidIssuers.Should().Equal(Issuer);
+        parameters.ValidIssuers.Prepend(parameters.ValidIssuer).Should().Equal(Issuer);
         parameters.ValidateAudience.Should().BeTrue();
         parameters.ValidAudiences.Should().Equal(Audience, OtherAudience);
         parameters.IssuerSigningKeys.Should().ContainSingle()

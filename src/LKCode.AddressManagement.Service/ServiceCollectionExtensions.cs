@@ -2,7 +2,9 @@ using System.Globalization;
 using LKCode.AddressManagement.Service.AuthorizationPolicies;
 using LKCode.AddressManagement.Service.OutputCachePolicies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OutputCaching;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
 namespace LKCode.AddressManagement.Service;
@@ -12,6 +14,16 @@ namespace LKCode.AddressManagement.Service;
 /// </summary>
 public static class ServiceCollectionExtensions
 {
+    private const string BearerSection = $"Authentication:Schemes:{JwtBearerDefaults.AuthenticationScheme}";
+
+    private const string MissingIssuerMessage =
+        $"The setting '{BearerSection}:ValidIssuer' or '{BearerSection}:ValidIssuers' must contain at least one "
+        + "issuer of the access tokens.";
+
+    private const string MissingAudienceMessage =
+        $"The setting '{BearerSection}:ValidAudiences' or '{BearerSection}:ValidAudience' must contain at least one "
+        + "audience of the access tokens.";
+
     private static readonly string _invalidExpirationMessage = string.Create(
         CultureInfo.InvariantCulture,
         $"The setting '{CachingOptions.SectionName}:{nameof(CachingOptions.Expiration)}' must be greater than "
@@ -90,7 +102,22 @@ public static class ServiceCollectionExtensions
     /// <exception cref="ArgumentNullException"><paramref name="services"/> is <see langword="null"/>.</exception>
     public static IServiceCollection AddJwtBearerAuthentication(this IServiceCollection services)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+            .AddJwtBearer(options => options.MapInboundClaims = false);
+        services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+            .Validate(
+                options => options.TokenValidationParameters is { ValidateIssuer: true } parameters
+                    && ContainsValue(parameters.ValidIssuer, parameters.ValidIssuers),
+                MissingIssuerMessage)
+            .Validate(
+                options => options.TokenValidationParameters is { ValidateAudience: true } parameters
+                    && ContainsValue(parameters.ValidAudience, parameters.ValidAudiences),
+                MissingAudienceMessage)
+            .ValidateOnStart();
+
+        return services;
     }
 
     /// <summary>
@@ -108,6 +135,24 @@ public static class ServiceCollectionExtensions
     /// <exception cref="ArgumentNullException"><paramref name="services"/> is <see langword="null"/>.</exception>
     public static IServiceCollection AddAddressAuthorization(this IServiceCollection services)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddAuthorizationBuilder()
+            .AddPolicy(
+                AddressAuthorizationPolicyNames.Read,
+                policy => policy.RequireAuthenticatedUser().AddRequirements(new ScopeRequirement(AddressScopes.Read)))
+            .AddPolicy(
+                AddressAuthorizationPolicyNames.Write,
+                policy => policy.RequireAuthenticatedUser().AddRequirements(new ScopeRequirement(AddressScopes.Write)))
+            .SetFallbackPolicy(new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IAuthorizationHandler, ScopeAuthorizationHandler>());
+
+        return services;
     }
+
+    /// <summary>
+    /// Determines whether the <paramref name="value"/> or one of the <paramref name="values"/> is not blank.
+    /// </summary>
+    private static bool ContainsValue(string? value, IEnumerable<string>? values) =>
+        !string.IsNullOrWhiteSpace(value) || (values?.Any(item => !string.IsNullOrWhiteSpace(item)) ?? false);
 }
