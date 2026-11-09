@@ -1,0 +1,158 @@
+name: Publish Container
+
+# Publishes the container image of the service to the GitHub Container Registry after "Build & Test" has succeeded
+# for a push to main or of a version tag vX.Y.Z. Pull requests never publish an image. The workflow checks out exactly
+# the tested commit and does not run the tests again.
+on:
+  workflow_run:
+    workflows:
+      - Build & Test
+    types:
+      - completed
+    # For a tag push, head_branch contains the name of the tag. The condition of the job is the actual guard.
+    branches:
+      - main
+      - v*
+
+permissions: {}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  REGISTRY: ghcr.io
+  PROJECT: src/LKCode.AddressManagement.Service
+
+jobs:
+  publish:
+    name: Publish container image
+    if: >-
+      github.event.workflow_run.conclusion == 'success'
+      && github.event.workflow_run.event == 'push'
+      && github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+    # Runs for the same branch or tag never overlap, so that latest always ends up at the newest commit of main.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+      cancel-in-progress: false
+    outputs:
+      image: ${{ steps.image.outputs.image }}
+      version: ${{ steps.tags.outputs.version }}
+    steps:
+      # main: latest and the full commit SHA. Version tag vX.Y.Z: only X.Y.Z, so that latest and the SHA tags always
+      # come from main. The label org.opencontainers.image.version gets the commit SHA or the version.
+      - name: Determine tags
+        id: tags
+        env:
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          version=""
+          if [[ "$HEAD_BRANCH" == "main" ]]; then
+            tags="latest;$HEAD_SHA"
+            image_version="$HEAD_SHA"
+          elif [[ "$HEAD_BRANCH" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+            version="${BASH_REMATCH[1]}"
+            tags="$version"
+            image_version="$version"
+          else
+            echo "::error::'$HEAD_BRANCH' is neither main nor a version tag vX.Y.Z, no image is published."
+            exit 1
+          fi
+
+          {
+            echo "tags=$tags"
+            echo "image-version=$image_version"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Checkout tested commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          persist-credentials: false
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      # The repository of the image is configured once, in the project file.
+      - name: Determine image name
+        id: image
+        run: |
+          repository="$(dotnet msbuild "$PROJECT" -getProperty:ContainerRepository)"
+          echo "image=$REGISTRY/$repository" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to the container registry
+        env:
+          ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "$GITHUB_TOKEN" | docker login "$REGISTRY" --username "$ACTOR" --password-stdin
+
+      # The tags are passed as environment variable, which avoids escaping the semicolon on the command line.
+      - name: Publish container image
+        env:
+          ContainerImageTags: ${{ steps.tags.outputs.tags }}
+          IMAGE_VERSION: ${{ steps.tags.outputs.image-version }}
+        run: >-
+          dotnet publish "$PROJECT"
+          --configuration Release
+          -t:PublishContainer
+          -p:ContainerRegistry="$REGISTRY"
+          -p:ContainerVersion="$IMAGE_VERSION"
+
+      - name: Write summary
+        env:
+          IMAGE: ${{ steps.image.outputs.image }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          {
+            echo "### Container image"
+            echo
+            IFS=';' read -ra tags <<< "$TAGS"
+            for tag in "${tags[@]}"; do
+              echo "- \`$IMAGE:$tag\`"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release:
+    name: Create release
+    needs: publish
+    if: needs.publish.outputs.version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      # A rerun of the workflow finds the release of the first run and leaves it unchanged.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.workflow_run.head_branch }}
+          VERSION: ${{ needs.publish.outputs.version }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo "::notice::The release $TAG already exists."
+            exit 0
+          fi
+
+          package_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/pkgs/container/${IMAGE#*/*/}"
+          notes_file="$RUNNER_TEMP/release-notes.md"
+          cat > "$notes_file" <<EOF
+          Container image: [\`$IMAGE:$VERSION\`]($package_url)
+
+          \`\`\`bash
+          docker pull $IMAGE:$VERSION
+          \`\`\`
+          EOF
+
+          gh release create "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "$TAG" \
+            --notes-file "$notes_file"
