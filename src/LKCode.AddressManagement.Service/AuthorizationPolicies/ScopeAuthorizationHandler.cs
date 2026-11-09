@@ -15,6 +15,8 @@ namespace LKCode.AddressManagement.Service.AuthorizationPolicies;
 /// </remarks>
 public sealed class ScopeAuthorizationHandler : AuthorizationHandler<ScopeRequirement>
 {
+    private static readonly string[] _scopeClaimTypes = ["scope", "scp"];
+
     /// <summary>
     /// Marks the <paramref name="requirement"/> as successful if the user has its scope.
     /// </summary>
@@ -28,6 +30,20 @@ public sealed class ScopeAuthorizationHandler : AuthorizationHandler<ScopeRequir
         AuthorizationHandlerContext context,
         ScopeRequirement requirement)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(requirement);
+
+        bool hasScope = context.User.Identities
+            .Where(identity => identity.IsAuthenticated)
+            .SelectMany(identity => identity.Claims)
+            .Where(claim => _scopeClaimTypes.Contains(claim.Type, StringComparer.Ordinal))
+            .SelectMany(claim => claim.Value.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            .Contains(requirement.Scope, StringComparer.Ordinal);
+        if (hasScope)
+        {
+            context.Succeed(requirement);
+        }
+
+        return Task.CompletedTask;
     }
 }
