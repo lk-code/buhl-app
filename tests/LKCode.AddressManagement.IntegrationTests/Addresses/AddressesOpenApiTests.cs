@@ -43,11 +43,13 @@ public class AddressesOpenApiTests
         JsonElement responses = GetPostOperation().GetProperty("responses");
 
         // Assert
-        GetNames(responses).Should().BeEquivalentTo("201", "400", "415", "500");
+        GetNames(responses).Should().BeEquivalentTo("201", "400", "401", "403", "415", "500");
     }
 
     [TestCase("201", JsonMediaType, "AddressResponse")]
     [TestCase("400", ProblemDetailsMediaType, "ValidationProblemDetails")]
+    [TestCase("401", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("403", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("415", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("500", ProblemDetailsMediaType, "ProblemDetails")]
     public void PostOperation_Response_HasOnlyMediaTypeWithSchema(string statusCode, string mediaType, string schema)
@@ -76,6 +78,7 @@ public class AddressesOpenApiTests
     }
 
     [TestCase("400")]
+    [TestCase("403")]
     [TestCase("415")]
     [TestCase("500")]
     public void PostOperation_ErrorResponse_HasNoHeaders(string statusCode)
@@ -129,10 +132,12 @@ public class AddressesOpenApiTests
         JsonElement responses = GetGetByIdOperation().GetProperty("responses");
 
         // Assert
-        GetNames(responses).Should().BeEquivalentTo("200", "404", "500");
+        GetNames(responses).Should().BeEquivalentTo("200", "401", "403", "404", "500");
     }
 
     [TestCase("200", JsonMediaType, "AddressResponse")]
+    [TestCase("401", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("403", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("404", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("500", ProblemDetailsMediaType, "ProblemDetails")]
     public void GetByIdOperation_Response_HasOnlyMediaTypeWithSchema(
@@ -291,7 +296,7 @@ public class AddressesOpenApiTests
         JsonElement responses = GetGetListOperation().GetProperty("responses");
 
         // Assert
-        GetNames(responses).Should().BeEquivalentTo("200", "400", "500");
+        GetNames(responses).Should().BeEquivalentTo("200", "400", "401", "403", "500");
     }
 
     [Test]
@@ -309,6 +314,7 @@ public class AddressesOpenApiTests
     }
 
     [TestCase("400", "ValidationProblemDetails")]
+    [TestCase("403", "ProblemDetails")]
     [TestCase("500", "ProblemDetails")]
     public void GetListOperation_ErrorResponse_HasDescriptionAndOnlyProblemDetailsWithoutHeaders(
         string statusCode,
@@ -525,11 +531,13 @@ public class AddressesOpenApiTests
         JsonElement responses = GetPutOperation().GetProperty("responses");
 
         // Assert
-        GetNames(responses).Should().BeEquivalentTo("200", "400", "404", "412", "415", "428", "500");
+        GetNames(responses).Should().BeEquivalentTo("200", "400", "401", "403", "404", "412", "415", "428", "500");
     }
 
     [TestCase("200", JsonMediaType, "AddressResponse")]
     [TestCase("400", ProblemDetailsMediaType, "ValidationProblemDetails")]
+    [TestCase("401", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("403", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("404", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("412", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("415", ProblemDetailsMediaType, "ProblemDetails")]
@@ -548,6 +556,7 @@ public class AddressesOpenApiTests
     }
 
     [TestCase("400")]
+    [TestCase("403")]
     [TestCase("404")]
     [TestCase("412")]
     [TestCase("415")]
@@ -604,11 +613,13 @@ public class AddressesOpenApiTests
         JsonElement responses = GetPatchOperation().GetProperty("responses");
 
         // Assert
-        GetNames(responses).Should().BeEquivalentTo("200", "400", "404", "409", "412", "415", "428", "500");
+        GetNames(responses).Should().BeEquivalentTo("200", "400", "401", "403", "404", "409", "412", "415", "428", "500");
     }
 
     [TestCase("200", JsonMediaType, "AddressResponse")]
     [TestCase("400", ProblemDetailsMediaType, "ValidationProblemDetails")]
+    [TestCase("401", ProblemDetailsMediaType, "ProblemDetails")]
+    [TestCase("403", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("404", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("409", ProblemDetailsMediaType, "ProblemDetails")]
     [TestCase("412", ProblemDetailsMediaType, "ProblemDetails")]
@@ -628,6 +639,7 @@ public class AddressesOpenApiTests
     }
 
     [TestCase("400")]
+    [TestCase("403")]
     [TestCase("404")]
     [TestCase("409")]
     [TestCase("412")]
@@ -767,7 +779,7 @@ public class AddressesOpenApiTests
         JsonElement responses = GetDeleteOperation().GetProperty("responses");
 
         // Assert
-        GetNames(responses).Should().BeEquivalentTo("204", "400", "404", "412", "428", "500");
+        GetNames(responses).Should().BeEquivalentTo("204", "400", "401", "403", "404", "412", "428", "500");
     }
 
     [Test]
@@ -797,6 +809,7 @@ public class AddressesOpenApiTests
         response.TryGetProperty("headers", out _).Should().BeFalse();
     }
 
+    [TestCase("403")]
     [TestCase("404")]
     [TestCase("412")]
     [TestCase("428")]

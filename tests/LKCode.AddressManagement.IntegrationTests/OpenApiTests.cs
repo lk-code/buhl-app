@@ -84,6 +84,17 @@ public class OpenApiTests
     }
 
     [Test]
+    public async Task GetAsync_ScalarInDevelopment_PrefersBearerSecurityScheme()
+    {
+        // Act
+        using HttpResponseMessage response = await _client.GetAsync(ScalarPath);
+
+        // Assert
+        string html = await response.Content.ReadAsStringAsync();
+        html.Should().Contain("\"preferredSecuritySchemes\":[\"Bearer\"]");
+    }
+
+    [Test]
     public async Task GetAsync_ScalarInProduction_Returns404WithProblemDetails()
     {
         // Act
