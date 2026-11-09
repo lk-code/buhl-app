@@ -1,6 +1,7 @@
 # AddressManagement
 
 [![Build & Test](https://github.com/lk-code/buhl-app/actions/workflows/build-test.yml/badge.svg)](https://github.com/lk-code/buhl-app/actions/workflows/build-test.yml)
+[![Publish Container](https://github.com/lk-code/buhl-app/actions/workflows/publish-container.yml/badge.svg)](https://github.com/lk-code/buhl-app/actions/workflows/publish-container.yml)
 
 REST-API zur Verwaltung von Adressen auf Basis von .NET 10. Entwickelt testgetrieben mit klarer Schichtentrennung, EF Core InMemory als Persistenz und einer vollständig dokumentierten OpenAPI-Schnittstelle.
 
@@ -25,6 +26,8 @@ dotnet run --project src/LKCode.AddressManagement.Service
 | Scalar (nur in Development) | `http://localhost:5180/scalar` |
 
 Die Endpunkte verlangen ein JWT mit Scope; ein Entwicklungs-Token erzeugt `dotnet user-jwts` (siehe **Authentifizierung**). OpenAPI-Dokument und Scalar sind ohne Token erreichbar.
+
+Alternativ läuft die API als Container (siehe **Docker**).
 
 ## Endpunkte
 
@@ -93,7 +96,13 @@ Tokens erzeugen die Tests selbst (`TestTokens`) und signieren sie mit einem fest
 
 ## CI
 
-Der Workflow [`build-test.yml`](.github/workflows/build-test.yml) läuft bei jedem Push auf `main` und jedem Pull Request gegen `main`: Build mit Warnungen als Fehler, danach `coverage.cs` mit mindestens 90 % Line-Coverage. Die Coverage-Zusammenfassung steht in der Job-Summary, der HTML-Report liegt als Artefakt `coverage-report` bereit. Neuere Läufe desselben Branches brechen laufende ab.
+Der Workflow [`build-test.yml`](.github/workflows/build-test.yml) läuft bei jedem Push auf `main`, jedem Tag `v*` und jedem Pull Request gegen `main`: Build mit Warnungen als Fehler, danach `coverage.cs` mit mindestens 90 % Line-Coverage. Die Coverage-Zusammenfassung steht in der Job-Summary, der HTML-Report liegt als Artefakt `coverage-report` bereit. Neuere Läufe desselben Branches bzw. Tags brechen laufende ab.
+
+War `build-test.yml` für einen Push auf `main` oder einen Tag `v*` erfolgreich, startet [`publish-container.yml`](.github/workflows/publish-container.yml) (`workflow_run`). Er checkt genau den getesteten Commit aus (`head_sha`), führt die Tests nicht erneut aus, baut das Image mit `dotnet publish -t:PublishContainer` und pusht es mit dem `GITHUB_TOKEN` nach `ghcr.io/lk-code/buhl-app` (siehe **Docker**):
+- Push auf `main`: Tags `latest` und der volle Commit-SHA.
+- Tag `vX.Y.Z`: nur das Tag `X.Y.Z`. So zeigt `latest` immer auf den neuesten Stand von `main`, auch wenn ein älterer Commit getaggt wird. Danach legt ein zweiter Job das GitHub Release `vX.Y.Z` mit Link zum Image an; gibt es das Release schon (erneuter Lauf), bleibt es unverändert. Ein Tag `v*` in anderer Form (z. B. `v1.2`) lässt den Workflow fehlschlagen, ohne ein Image zu veröffentlichen.
+- Pull Requests veröffentlichen nie ein Image, auch nicht aus Forks. Läufe für denselben Branch bzw. Tag laufen nacheinander. Jeder Job hat nur die nötigen Rechte: `packages: write` zum Pushen, `contents: write` nur für das Release.
+- `workflow_run` greift nur, wenn der Workflow auf dem Standard-Branch liegt; er läuft also erst nach dem Merge nach `main`.
 
 ## Architektur
 
@@ -123,7 +132,8 @@ Das Repository-Interface liegt in `Core.Addresses`, die Implementierung in `Data
 | Serilog | strukturiertes Logging |
 | NUnit, AwesomeAssertions, NSubstitute | Unit- und Integrationstests |
 | coverlet + ReportGenerator | Coverage-Messung und Reports |
-| GitHub Actions | Build, Tests und Coverage-Prüfung bei jedem Push und Pull Request |
+| .NET SDK Container-Unterstützung | Image ohne Dockerfile direkt aus dem Projekt (`dotnet publish -t:PublishContainer`), Chiseled-Basis-Image, Non-Root |
+| GitHub Actions | Build, Tests und Coverage-Prüfung bei jedem Push und Pull Request, Veröffentlichung des Images in der GitHub Container Registry |
 
 ## Pakete und Lizenzen
 
@@ -350,15 +360,82 @@ In Produktion kommen die Tokens von einem Identity Provider (z. B. Entra ID oder
 }
 ```
 
-Mit `Authority` lädt ASP.NET Core die Signaturschlüssel aus den OpenID-Connect-Metadaten des Identity Providers. `ValidIssuer` und `ValidAudiences` sind Pflicht; fehlen sie, startet die Anwendung nicht (siehe **Authentifizierung und Autorisierung**).
+Mit `Authority` lädt ASP.NET Core die Signaturschlüssel aus den OpenID-Connect-Metadaten des Identity Providers. `ValidIssuer` und `ValidAudiences` sind Pflicht; fehlen sie, startet die Anwendung nicht (siehe **Authentifizierung und Autorisierung**). Im Container kommen dieselben Einstellungen aus Umgebungsvariablen (siehe **Docker**).
 
-## Docker (eigener bonus - optional)
+## Docker
 
-Das Image wird ohne Dockerfile über das .NET SDK gebaut und nach erfolgreichem Build und Test automatisch in der GitHub Container Registry veröffentlicht.
+Das Image entsteht ohne Dockerfile über das .NET SDK (`dotnet publish -t:PublishContainer`), die Einstellungen stehen in der Service-`.csproj`. Nach erfolgreichem Build und Test veröffentlicht es der Workflow `publish-container.yml` in der GitHub Container Registry (siehe **CI**).
+
+| Tag | Inhalt |
+|---|---|
+| `latest` | neuester Commit auf `main` |
+| `<Commit-SHA>` | ein bestimmter Commit auf `main` (voller SHA mit 40 Zeichen) |
+| `X.Y.Z` | Version aus dem Git-Tag `vX.Y.Z` |
 
 ```bash
 docker pull ghcr.io/lk-code/buhl-app:latest
-docker run --rm -p 8080:8080 -e ASPNETCORE_ENVIRONMENT=Development ghcr.io/lk-code/buhl-app:latest
 ```
 
-Die API ist dann unter `http://localhost:8080` erreichbar, Scalar unter `/scalar` (nur in Development).
+GitHub legt ein neues Paket in der Container Registry als privat an. Damit `docker pull` ohne Anmeldung funktioniert, muss die Sichtbarkeit des Pakets einmalig in seinen Einstellungen auf „Public“ gestellt werden.
+
+### JWT im Container
+
+Der Container läuft in der Umgebung `Production`. `appsettings.json` enthält keine JWT-Einstellungen, ohne Issuer und Audience startet der Container deshalb nicht (siehe **Authentifizierung und Autorisierung**). Die Einstellungen kommen als Umgebungsvariablen: `__` ersetzt den Trenner `:`, Listen werden mit Index angegeben.
+
+| Umgebungsvariable | Inhalt |
+|---|---|
+| `Authentication__Schemes__Bearer__Authority` | URL des Identity Providers; von dort lädt ASP.NET Core die Signaturschlüssel |
+| `Authentication__Schemes__Bearer__ValidIssuer` | gültiger Issuer (Pflicht, alternativ `…__ValidIssuers__0`, `…__ValidIssuers__1` usw.) |
+| `Authentication__Schemes__Bearer__ValidAudience` | gültige Audience (Pflicht, alternativ `…__ValidAudiences__0`, `…__ValidAudiences__1` usw.) |
+| `Authentication__Schemes__Bearer__SigningKeys__0__Issuer` und `…__SigningKeys__0__Value` | symmetrischer Signaturschlüssel (Base64) und der Issuer, zu dem er gehört; nur zum Testen ohne Identity Provider |
+
+Mit Identity Provider (Werte wie im Beispiel unter **Authentifizierung**):
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e Authentication__Schemes__Bearer__Authority=https://login.example.com/realms/addresses \
+  -e Authentication__Schemes__Bearer__ValidIssuer=https://login.example.com/realms/addresses \
+  -e Authentication__Schemes__Bearer__ValidAudience=address-management-api \
+  ghcr.io/lk-code/buhl-app:latest
+```
+
+Zum Ausprobieren mit Tokens von `dotnet user-jwts` bekommt der Container den Signaturschlüssel aus den lokalen User Secrets. ASP.NET Core ordnet einen Schlüssel über `Issuer` dem gültigen Issuer zu, beide sind `dotnet-user-jwts`. Die Audience `http://localhost:5180` steht in jedem Token von `dotnet user-jwts` (aus `launchSettings.json`), unabhängig vom Port des Containers.
+
+```bash
+# Token erzeugen; das erste create legt auch den Schlüssel an (siehe Authentifizierung)
+TOKEN=$(dotnet user-jwts create --project src/LKCode.AddressManagement.Service --scope "addresses:read" --scope "addresses:write" -o token)
+
+# Schlüssel lesen; die Ausgabe hat die Form: Signing Key: '<Schlüssel>'
+KEY=$(dotnet user-jwts key --project src/LKCode.AddressManagement.Service | cut -d "'" -f 2)
+
+docker run -d --name buhl-app -p 8080:8080 \
+  -e Authentication__Schemes__Bearer__ValidIssuer=dotnet-user-jwts \
+  -e Authentication__Schemes__Bearer__ValidAudience=http://localhost:5180 \
+  -e Authentication__Schemes__Bearer__SigningKeys__0__Issuer=dotnet-user-jwts \
+  -e Authentication__Schemes__Bearer__SigningKeys__0__Value="$KEY" \
+  ghcr.io/lk-code/buhl-app:latest
+
+curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/addresses
+
+# Container beenden und entfernen
+docker rm -f buhl-app
+```
+
+Mit zusätzlich `-e ASPNETCORE_ENVIRONMENT=Development` gibt es Scalar unter `http://localhost:8080/scalar`. Issuer und Audiences kommen dann aus `appsettings.Development.json`, nur die beiden Variablen `SigningKeys__0__…` sind nötig.
+
+### Image lokal bauen
+
+```bash
+dotnet publish src/LKCode.AddressManagement.Service -t:PublishContainer
+```
+
+Das Image landet als `lk-code/buhl-app:latest` im lokalen Docker (oder Podman); die Registry `ghcr.io` setzt nur der Workflow. In den Beispielen oben steht dann `lk-code/buhl-app:latest` statt `ghcr.io/lk-code/buhl-app:latest`.
+
+### Eigenschaften des Images
+
+- Basis-Image `mcr.microsoft.com/dotnet/aspnet:10.0-noble-chiseled-extra`: Ubuntu Chiseled, also ohne Shell und Paketmanager, mit ICU und Zeitzonendaten. Das reine Chiseled-Image enthält kein ICU; die Anwendung müsste dann im Invariant-Globalization-Modus laufen, in dem `string.Normalize` keine Akzente entfernt. Die Suche nach „koln“ fände „Köln“ nicht mehr (siehe **Suche**), und Texte würden ordinal sortiert.
+- Läuft als Non-Root-Benutzer `app` mit der UID `1654`. Sie ist numerisch angegeben (`ContainerUser`), damit z. B. Kubernetes mit `runAsNonRoot` sie prüfen kann.
+- Nur `linux-x64`. Die API lauscht per HTTP auf Port `8080` (`ASPNETCORE_HTTP_PORTS` aus dem Basis-Image); TLS übernimmt ein Reverse Proxy davor.
+- Logs als kompaktes JSON auf der Konsole (`docker logs`, siehe **Logging**).
+- Die Daten liegen im Speicher (EF Core InMemory) und gehen bei jedem Neustart des Containers verloren.
+- OCI-Labels: `org.opencontainers.image.source` (verknüpft das Paket in der GitHub Container Registry mit dem Repository), `revision` (Commit), `version` (Commit-SHA bzw. `X.Y.Z`; lokal `1.0.0`), `description` sowie Name und Digest des Basis-Images.
