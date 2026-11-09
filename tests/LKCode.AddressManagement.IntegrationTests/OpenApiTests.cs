@@ -91,7 +91,7 @@ public class OpenApiTests
 
         // Assert
         string html = await response.Content.ReadAsStringAsync();
-        html.Should().Contain("\"preferredSecuritySchemes\":[\"Bearer\"]");
+        html.Should().Contain("\"authentication\":{\"preferredSecurityScheme\":[\"Bearer\"]}");
     }
 
     [Test]

@@ -1,3 +1,4 @@
+using LKCode.AddressManagement.Service.AuthorizationPolicies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.OpenApi;
 using Microsoft.OpenApi;
@@ -14,6 +15,12 @@ namespace LKCode.AddressManagement.Service.OpenApiTransformers;
 /// </remarks>
 public sealed class BearerSecuritySchemeDocumentTransformer : IOpenApiDocumentTransformer
 {
+    private const string Description =
+        "A JWT access token in the header `Authorization: Bearer <token>`. Reading addresses requires the scope "
+        + $"`{AddressScopes.Read}`, changing them the scope `{AddressScopes.Write}`, in the claim `scope` or `scp` "
+        + "(one scope or several separated by spaces, or an array). Without a valid token, the response is "
+        + "`401 Unauthorized`; without the required scope, `403 Forbidden`.";
+
     /// <summary>
     /// Adds the security scheme <see cref="JwtBearerDefaults.AuthenticationScheme"/> to the
     /// <paramref name="document"/>.
@@ -30,6 +37,20 @@ public sealed class BearerSecuritySchemeDocumentTransformer : IOpenApiDocumentTr
         OpenApiDocumentTransformerContext context,
         CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(document);
+        ArgumentNullException.ThrowIfNull(context);
+
+        // AddComponent also registers the scheme in the workspace of the document, so that references resolve.
+        document.AddComponent<IOpenApiSecurityScheme>(
+            JwtBearerDefaults.AuthenticationScheme,
+            new OpenApiSecurityScheme
+            {
+                Type = SecuritySchemeType.Http,
+                Scheme = "bearer",
+                BearerFormat = "JWT",
+                Description = Description,
+            });
+
+        return Task.CompletedTask;
     }
 }

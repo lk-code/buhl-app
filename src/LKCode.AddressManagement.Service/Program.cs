@@ -6,6 +6,7 @@ using LKCode.AddressManagement.Domain;
 using LKCode.AddressManagement.Service;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
 using LKCode.AddressManagement.Service.OpenApiTransformers;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Scalar.AspNetCore;
@@ -88,6 +89,8 @@ builder.Services.AddOpenApi(options =>
     options.AddOperationTransformer<AgeHeaderOperationTransformer>();
     options.AddOperationTransformer<IfMatchHeaderOperationTransformer>();
     options.AddOperationTransformer<AddressListParametersOperationTransformer>();
+    options.AddOperationTransformer<SecurityRequirementOperationTransformer>();
+    options.AddDocumentTransformer<BearerSecuritySchemeDocumentTransformer>();
 });
 
 WebApplication app = builder.Build();
@@ -119,7 +122,9 @@ app.MapOpenApi().AllowAnonymous();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapScalarApiReference().AllowAnonymous();
+    // Scalar takes the scheme from the OpenAPI document and preselects it, so that a token can be entered directly.
+    app.MapScalarApiReference(options => options.AddPreferredSecuritySchemes([JwtBearerDefaults.AuthenticationScheme]))
+        .AllowAnonymous();
 }
 
 app.MapControllers();

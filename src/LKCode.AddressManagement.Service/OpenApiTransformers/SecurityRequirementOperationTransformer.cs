@@ -1,6 +1,8 @@
 using LKCode.AddressManagement.Service.AuthorizationPolicies;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.Net.Http.Headers;
 using Microsoft.OpenApi;
 
 namespace LKCode.AddressManagement.Service.OpenApiTransformers;
@@ -21,6 +23,13 @@ namespace LKCode.AddressManagement.Service.OpenApiTransformers;
 public sealed class SecurityRequirementOperationTransformer(IAuthorizationPolicyProvider policyProvider)
     : IOpenApiOperationTransformer
 {
+    private const string UnauthorizedStatusCode = "401";
+
+    private const string WwwAuthenticateDescription =
+        "The challenge of the scheme `Bearer` (RFC 6750, section 3): only `Bearer` if the request has no bearer "
+        + "token; for an invalid token additionally the error `invalid_token` and its description, e.g. "
+        + "`Bearer error=\"invalid_token\", error_description=\"The token expired at '...'\"`.";
+
     private readonly IAuthorizationPolicyProvider _policyProvider =
         policyProvider ?? throw new ArgumentNullException(nameof(policyProvider));
 
@@ -36,11 +45,50 @@ public sealed class SecurityRequirementOperationTransformer(IAuthorizationPolicy
     /// <exception cref="ArgumentNullException">
     /// <paramref name="operation"/> or <paramref name="context"/> is <see langword="null"/>.
     /// </exception>
-    public Task TransformAsync(
+    public async Task TransformAsync(
         OpenApiOperation operation,
         OpenApiOperationTransformerContext context,
         CancellationToken cancellationToken)
     {
-        throw new NotImplementedException();
+        ArgumentNullException.ThrowIfNull(operation);
+        ArgumentNullException.ThrowIfNull(context);
+
+        IList<object> metadata = context.Description.ActionDescriptor.EndpointMetadata;
+        if (metadata.OfType<IAllowAnonymous>().Any())
+        {
+            return;
+        }
+
+        AuthorizationPolicy? policy = await AuthorizationPolicy.CombineAsync(
+            _policyProvider,
+            [.. metadata.OfType<IAuthorizeData>()],
+            [.. metadata.OfType<AuthorizationPolicy>()]);
+        if (policy is null)
+        {
+            return;
+        }
+
+        List<string> scopes =
+        [
+            .. policy.Requirements.OfType<ScopeRequirement>()
+                .Select(requirement => requirement.Scope)
+                .Distinct(StringComparer.Ordinal),
+        ];
+        operation.Security ??= [];
+        operation.Security.Add(new OpenApiSecurityRequirement
+        {
+            [new OpenApiSecuritySchemeReference(JwtBearerDefaults.AuthenticationScheme, context.Document)] = scopes,
+        });
+
+        if (operation.Responses?.GetValueOrDefault(UnauthorizedStatusCode) is OpenApiResponse response)
+        {
+            response.Headers ??= new Dictionary<string, IOpenApiHeader>();
+            response.Headers[HeaderNames.WWWAuthenticate] = new OpenApiHeader
+            {
+                Required = true,
+                Description = WwwAuthenticateDescription,
+                Schema = new OpenApiSchema { Type = JsonSchemaType.String },
+            };
+        }
     }
 }

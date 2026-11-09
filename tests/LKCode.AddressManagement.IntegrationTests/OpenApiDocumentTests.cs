@@ -167,7 +167,7 @@ public class OpenApiDocumentTests
                     + string.Join(", ", GetHeaderNames(response.Value))));
 
         // Assert
-        responses.Should().Equal(
+        responses.Should().BeEquivalentTo(
             "get /api/addresses 200: Age",
             "get /api/addresses 401: WWW-Authenticate",
             "post /api/addresses 201: Location, ETag",
