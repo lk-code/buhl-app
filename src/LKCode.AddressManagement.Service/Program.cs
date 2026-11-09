@@ -3,6 +3,7 @@ using FluentValidation;
 using LKCode.AddressManagement.Core.Addresses;
 using LKCode.AddressManagement.Data;
 using LKCode.AddressManagement.Domain;
+using LKCode.AddressManagement.Service;
 using LKCode.AddressManagement.Service.ExceptionHandlers;
 using LKCode.AddressManagement.Service.OpenApiTransformers;
 using Microsoft.AspNetCore.Mvc;
@@ -48,7 +49,8 @@ builder.Services.TryAddSingleton(TimeProvider.System);
 builder.Services
     .AddDomain()
     .AddCoreAddresses()
-    .AddData(builder.Configuration);
+    .AddData(builder.Configuration)
+    .AddAddressCaching(builder.Configuration);
 
 // System.Text.Json is the serializer of the controllers; Newtonsoft.Json is not used. MVC does not treat
 // non-nullable properties as implicitly required: requests are sanitized and then validated completely by
@@ -81,6 +83,7 @@ builder.Services.AddOpenApi(options =>
     options.AddSchemaTransformer<ProblemDetailsSchemaTransformer>();
     options.AddOperationTransformer<LocationHeaderOperationTransformer>();
     options.AddOperationTransformer<ETagHeaderOperationTransformer>();
+    options.AddOperationTransformer<AgeHeaderOperationTransformer>();
     options.AddOperationTransformer<IfMatchHeaderOperationTransformer>();
     options.AddOperationTransformer<AddressListParametersOperationTransformer>();
 });
@@ -96,6 +99,11 @@ app.UseExceptionHandler();
 
 // Writes Problem Details for error responses without a body, e.g. 404 for an unknown route.
 app.UseStatusCodePages();
+
+// Behind everything that decides whether a request may be answered at all, e.g. authentication and authorization,
+// so that the cache never answers a request that would be rejected. Only the endpoints with an output cache policy
+// are cached; the policies and the expiration are registered by AddAddressCaching().
+app.UseOutputCache();
 
 // The OpenAPI document is the contract of the API and is therefore available in every environment.
 app.MapOpenApi();

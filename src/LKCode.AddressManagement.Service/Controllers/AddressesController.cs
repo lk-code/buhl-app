@@ -10,10 +10,12 @@ using LKCode.AddressManagement.Core.Addresses.Mappings;
 using LKCode.AddressManagement.Core.Addresses.Results;
 using LKCode.AddressManagement.Core.Addresses.Sanitizers;
 using LKCode.AddressManagement.Service.Extensions;
+using LKCode.AddressManagement.Service.OutputCachePolicies;
 using LKCode.AddressManagement.Service.Preconditions;
 using Microsoft.AspNetCore.JsonPatch.SystemTextJson;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.AspNetCore.OutputCaching;
 using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 
@@ -28,6 +30,9 @@ namespace LKCode.AddressManagement.Service.Controllers;
 /// <param name="addressListQueryValidator">The validator of the paging and sorting parameters of the list.</param>
 /// <param name="jsonOptions">
 /// The JSON options of the controllers; their naming policy converts the property names of validation errors.
+/// </param>
+/// <param name="outputCacheStore">
+/// The store of the output cache, from which every successful change removes the affected responses.
 /// </param>
 /// <remarks>
 /// The XML documentation of the actions is the description of the endpoints in the OpenAPI document: the summary,
@@ -44,7 +49,8 @@ public sealed class AddressesController(
     IValidator<CreateAddressRequest> createAddressValidator,
     IValidator<UpdateAddressRequest> updateAddressValidator,
     IValidator<AddressListQuery> addressListQueryValidator,
-    IOptions<JsonOptions> jsonOptions) : ControllerBase
+    IOptions<JsonOptions> jsonOptions,
+    IOutputCacheStore outputCacheStore) : ControllerBase
 {
     private const string GetByIdRouteName = "GetAddressById";
     private const string ListRouteName = "ListAddresses";
@@ -85,6 +91,9 @@ public sealed class AddressesController(
         (jsonOptions ?? throw new ArgumentNullException(nameof(jsonOptions)))
         .Value.JsonSerializerOptions.PropertyNamingPolicy;
 
+    private readonly IOutputCacheStore _outputCacheStore =
+        outputCacheStore ?? throw new ArgumentNullException(nameof(outputCacheStore));
+
     /// <summary>
     /// Gets the address with the given id.
     /// </summary>
@@ -95,11 +104,17 @@ public sealed class AddressesController(
     /// The `ETag` header contains the strong entity tag of the current version of the address, e.g. `"3"`; a change
     /// requires it in its `If-Match` header. An unknown id and an id that is no GUID both result in `404 Not Found`,
     /// like an unknown route. It is not possible to tell whether an address with the id has ever existed.
+    ///
+    /// The response can come from the server-side cache; then the `Age` header contains the seconds since it was
+    /// cached. Every change and the deletion of the address remove it from the cache, so they take effect
+    /// immediately. The headers `If-None-Match` and `If-Modified-Since` are not evaluated: such a request always gets
+    /// the current address with `200 OK`, never `304 Not Modified`.
     /// </remarks>
     /// <response code="200">The address; the `ETag` header contains its version.</response>
     /// <response code="404">There is no address with the id.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet("{id:guid}", Name = GetByIdRouteName)]
+    [OutputCache(PolicyName = AddressOutputCachePolicyNames.ById)]
     [ProducesResponseType<AddressResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound, MediaTypeNames.Application.ProblemJson)]
     public async Task<ActionResult<AddressResponse>> GetByIdAsync(Guid id, CancellationToken cancellationToken)
@@ -153,6 +168,12 @@ public sealed class AddressesController(
     /// A page below 1, a page size outside 1 to 100, a value that is no integer, and an unknown sort field or
     /// direction result in `400 Bad Request` with all errors together, keyed by the name of the parameter, e.g.
     /// `pageSize`.
+    ///
+    /// The response can come from the server-side cache, separately for every combination of query parameters; then
+    /// the `Age` header contains the seconds since it was cached. Every creation, change and deletion of an address
+    /// removes all pages from the cache, so they take effect immediately. The headers `If-None-Match` and
+    /// `If-Modified-Since` are not evaluated: such a request always gets the current page with `200 OK`, never
+    /// `304 Not Modified`.
     /// </remarks>
     /// <response code="200">
     /// The page of the matching addresses; `items` is empty if none matches or the page is behind the end.
@@ -160,6 +181,7 @@ public sealed class AddressesController(
     /// <response code="400">A paging or sorting parameter is invalid.</response>
     /// <response code="500">An unexpected error occurred.</response>
     [HttpGet(Name = ListRouteName)]
+    [OutputCache(PolicyName = AddressOutputCachePolicyNames.List)]
     [ProducesResponseType<AddressListResponse>(StatusCodes.Status200OK, MediaTypeNames.Application.Json)]
     [ProducesResponseType<ValidationProblemDetails>(
         StatusCodes.Status400BadRequest,
@@ -247,6 +269,9 @@ public sealed class AddressesController(
         }
 
         AddressResponse address = await _addressService.CreateAsync(sanitizedRequest, cancellationToken);
+
+        // A new address can appear on every page of the list; no cached single address is affected.
+        await _outputCacheStore.EvictByTagAsync(AddressCacheTags.List, cancellationToken);
         Response.Headers.SetETag(address.Version);
 
         return CreatedAtRoute(GetByIdRouteName, new { id = address.Id }, address);
@@ -502,13 +527,14 @@ public sealed class AddressesController(
         }
 
         ChangeStatus status = await _addressService.DeleteAsync(id, expectedVersion, cancellationToken);
-
-        return status switch
+        if (status != ChangeStatus.Success)
         {
-            ChangeStatus.Success => NoContent(),
-            ChangeStatus.NotFound => NotFound(),
-            _ => VersionMismatchProblem(),
-        };
+            return status == ChangeStatus.NotFound ? NotFound() : VersionMismatchProblem();
+        }
+
+        await EvictAddressAsync(id, cancellationToken);
+
+        return NoContent();
     }
 
     /// <summary>
@@ -548,9 +574,23 @@ public sealed class AddressesController(
             return result.Status == ChangeStatus.NotFound ? NotFound() : VersionMismatchProblem();
         }
 
+        await EvictAddressAsync(id, cancellationToken);
         Response.Headers.SetETag(result.Address.Version);
 
         return Ok(result.Address);
+    }
+
+    /// <summary>
+    /// Removes the cached responses that contain the changed or deleted address from the output cache: the address
+    /// itself and every page of the list.
+    /// </summary>
+    /// <param name="id">The id of the address.</param>
+    /// <param name="cancellationToken">The token to cancel the operation.</param>
+    /// <returns>A task that completes when the responses are removed.</returns>
+    private async Task EvictAddressAsync(Guid id, CancellationToken cancellationToken)
+    {
+        await _outputCacheStore.EvictByTagAsync(AddressCacheTags.ForAddress(id), cancellationToken);
+        await _outputCacheStore.EvictByTagAsync(AddressCacheTags.List, cancellationToken);
     }
 
     /// <summary>

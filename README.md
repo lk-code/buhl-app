@@ -37,6 +37,8 @@ dotnet run --project src/LKCode.AddressManagement.Service
 
 Fehler sind immer Problem Details (`application/problem+json`), unerwartete Fehler liefern `500`.
 
+Die Antworten der beiden `GET` können aus dem serverseitigen Cache kommen und tragen dann den Header `Age`. Jede Änderung wirkt trotzdem sofort (siehe **Caching**).
+
 `PUT`, `PATCH` und `DELETE` verlangen den Header `If-Match` mit dem `ETag` der Version, auf die sich die Änderung bezieht (z. B. `"1"`), oder `*` für jede Version (siehe **Optimistic Concurrency**).
 
 ```bash
@@ -76,7 +78,7 @@ dotnet run coverage.cs -- --threshold 90     # zusätzlich Mindestabdeckung prü
 
 Der HTML-Report liegt danach unter `coverage/report/index.html`. Mit `--threshold` schlägt das Skript fehl, wenn die gesamte Line-Coverage unter dem Wert liegt; solange es keinen abdeckbaren Code gibt, wird die Prüfung übersprungen.
 
-Die Integrationstests starten den Dienst über `AddressManagementWebApplicationFactory` im Speicher. Jede Instanz der Factory verwendet eine eigene InMemory-Datenbank mit eindeutigem Namen; Tests bzw. Fixtures, die eine eigene Factory erzeugen, beeinflussen sich dadurch nicht. Eine Deklaration `public partial class Program` ist dafür nicht nötig: Seit .NET 10 erzeugt ein Source-Generator die Klasse selbst als `public`, eine eigene Deklaration meldet der Analyzer ASP0027 als überflüssig.
+Die Integrationstests starten den Dienst über `AddressManagementWebApplicationFactory` im Speicher. Jede Instanz der Factory verwendet eine eigene InMemory-Datenbank mit eindeutigem Namen und, da sie einen eigenen Host startet, einen eigenen Output-Cache; Tests bzw. Fixtures, die eine eigene Factory erzeugen, beeinflussen sich dadurch nicht. Eine Deklaration `public partial class Program` ist dafür nicht nötig: Seit .NET 10 erzeugt ein Source-Generator die Klasse selbst als `public`, eine eigene Deklaration meldet der Analyzer ASP0027 als überflüssig.
 
 ## CI
 
@@ -86,7 +88,7 @@ Der Workflow [`build-test.yml`](.github/workflows/build-test.yml) läuft bei jed
 
 | Projekt | Inhalt |
 |---|---|
-| `LKCode.AddressManagement.Service` | REST-Host: Controller, Problem Details, OpenAPI |
+| `LKCode.AddressManagement.Service` | REST-Host: Controller, Problem Details, OpenAPI, Output Caching |
 | `LKCode.AddressManagement.Core.Addresses` | Geschäftslogik Adressen: Service, DTOs, Validierung, Mapping, Interfaces |
 | `LKCode.AddressManagement.Domain` | Entity `Address`, Normalisierung, Domain-Regeln |
 | `LKCode.AddressManagement.Data` | EF Core: DbContext, Konfiguration, Repository |
@@ -105,6 +107,7 @@ Das Repository-Interface liegt in `Core.Addresses`, die Implementierung in `Data
 | System.Text.Json | Standard in .NET, durchgehend für JSON |
 | Microsoft.AspNetCore.OpenApi + Scalar | offizieller OpenAPI-Weg seit .NET 9, moderne Oberfläche |
 | Microsoft.AspNetCore.JsonPatch.SystemTextJson | offizielle JSON-Patch-Unterstützung (RFC 6902) auf Basis von System.Text.Json seit .NET 10 |
+| ASP.NET Core Output Caching | im Framework enthalten, serverseitiger Cache mit gezielter Invalidierung per Tag |
 | Serilog | strukturiertes Logging |
 | NUnit, AwesomeAssertions, NSubstitute | Unit- und Integrationstests |
 | coverlet + ReportGenerator | Coverage-Messung und Reports |
@@ -181,9 +184,9 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Der Service wird über `AddCoreAddresses()` als Scoped registriert, passend zum Repository. Repository, `ITextNormalizer`, `TimeProvider` und Logging registrieren `AddData()`, `AddDomain()` und der Host.
 
 **Service-Host**
-- `Program.cs` registriert `AddDomain()`, `AddCoreAddresses()`, `AddData()` und `TimeProvider.System`. Die Controller nutzen System.Text.Json, den Standard von ASP.NET Core; Newtonsoft.Json wird nicht verwendet.
+- `Program.cs` registriert `AddDomain()`, `AddCoreAddresses()`, `AddData()`, `AddAddressCaching()` (Output Caching, siehe **Caching**) und `TimeProvider.System`. Die Controller nutzen System.Text.Json, den Standard von ASP.NET Core; Newtonsoft.Json wird nicht verwendet.
 - Das OpenAPI-Dokument (`Microsoft.AspNetCore.OpenApi`) ist der Vertrag der API und in jeder Umgebung unter `/openapi/v1.json` erreichbar. Die Oberfläche Scalar gibt es nur in `Development`.
-- Der Datenbankname steht in `appsettings.json` (`Data:DatabaseName`).
+- Der Datenbankname steht in `appsettings.json` (`Data:DatabaseName`), ebenso die Ablaufzeit des Caches (`Caching:Expiration`).
 
 **API**
 - Der `AddressesController` (`[ApiController]`, Route `api/addresses`) enthält keine Geschäftslogik. Er bereinigt den Request (`Sanitize()`), validiert ihn mit `IValidator<T>` und ruft dann `IAddressService` auf. Bei ungültigen Werten antwortet er mit **400** als `ValidationProblemDetails`, und zwar mit allen Feldfehlern auf einmal.
@@ -208,13 +211,14 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Die `operationId`s kommen aus den Routennamen der Actions: `CreateAddress`, `GetAddressById`, `ListAddresses`, `UpdateAddress`, `PatchAddress` und `DeleteAddress`. Die Antwort **204** von `DELETE` hat keinen Body und deshalb kein Schema.
 - `LocationHeaderOperationTransformer` beschreibt den `Location`-Header jeder 201-Antwort, denn Attribute können keine Header beschreiben.
 - `ETagHeaderOperationTransformer` beschreibt den Pflicht-Header `ETag` (`pattern` `^"[1-9][0-9]*"$`) jeder Antwort, deren Body eine einzelne `AddressResponse` ist: `GET` by Id, `POST`, `PUT` und `PATCH`. Die Liste hat keinen `ETag`.
+- `AgeHeaderOperationTransformer` beschreibt den optionalen Header `Age` (`integer`, `int64`, `minimum` 0) der **200**-Antwort jeder Action mit `[OutputCache]`, also der beiden `GET` (siehe **Caching**). Die Remarks der beiden Actions erklären, dass die Antwort aus dem Cache kommen kann und bedingte Requests nicht ausgewertet werden.
 - `IfMatchHeaderOperationTransformer` beschreibt den Pflicht-Parameter `If-Match` im Header jeder Operation mit einer Antwort **428**, also von `PUT`, `PATCH` und `DELETE`. Das `pattern` beschreibt die Syntax nach RFC 9110: `*` oder eine kommagetrennte Liste aus `"…"` und `W/"…"`. Ein Test stellt sicher, dass es für alle geprüften Werte genau dann passt, wenn die Auswertung zur Laufzeit den Header als gültig erkennt. Der Header wird nicht als Action-Parameter gebunden, weil ein Binding-Fehler die Prüfreihenfolge bräche.
 - `AddressSchemaTransformer` ergänzt die Schemas der Requests und von `AddressResponse` aus `AddressConstraints`: `required`, `minLength`/`maxLength`, `pattern` `^[A-Z]{2}$` für `country` sowie `format: email` und `null` als erlaubten Typ für `email`. `version` ist eine Ganzzahl (`int64`) ab 1; ohne den Transformer wäre sie auch als String beschrieben, weil die JSON-Optionen Zahlen aus Strings lesen dürfen. Die Schemas beschreiben bereinigte Werte; die API nimmt auch Werte mit Leerzeichen am Rand oder `country` in Kleinbuchstaben an.
 - Für jedes JSON-Patch-Dokument erzeugt ASP.NET Core dasselbe generische Schema `JsonPatchDocument`: ein Array von Operationen (`oneOf` aus `add`/`replace`/`test`, `move`/`copy` und `remove`), in dem `path` und `from` beliebige Strings und `value` beliebige Werte sind. `AddressPatchDocumentSchemaTransformer` schränkt `path` und `from` auf die JSON Pointer der acht Felder ein (`enum`) und `value` auf `string` oder `null`. Die Pointer kommen aus den JSON-Optionen, also aus derselben Quelle wie bei der Prüfung zur Laufzeit. Die Regeln der einzelnen Felder (Länge, Pattern, Format) gelten für die geänderte Adresse und stehen im Schema `UpdateAddressRequest`. Pro Feld als eigenes `oneOf` wären sie zwar ausdrückbar, das Schema würde dadurch aber unlesbar.
 - `AddressListParametersOperationTransformer` beschreibt die Query-Parameter der Liste: `page` als `int32` mit `minimum` 1, `maximum` 2147483647 und `default` 1, `pageSize` als `int32` mit `minimum` 1, `maximum` 100 und `default` 20, `sortBy` und `sortDirection` als `enum` der kanonischen Werte mit `default` `lastName` bzw. `asc`. Ohne den Transformer wären die Zahlen auch als String beschrieben (die JSON-Optionen dürfen Zahlen aus Strings lesen), und die Sortierung hätte keine erlaubten Werte. Die Werte kommen aus `AddressListConstraints`, `AddressSortFields` und `SortDirections`.
 - `AddressListResponseSchemaTransformer` beschreibt `page`, `pageSize`, `totalCount` und `totalPages` von `AddressListResponse` als `int32` mit ihren Bereichen (`page` ≥ 1, `pageSize` 1–100, die Zählungen ≥ 0) und macht alle fünf Felder zu `required`.
 - `ProblemDetailsSchemaTransformer` beschreibt `ProblemDetails` und `ValidationProblemDetails` so, wie die API sie schreibt: `type`, `title`, `status` und `traceId` (bei Validierungsfehlern zusätzlich `errors`) sind immer enthalten, `status` ist eine Ganzzahl zwischen 100 und 599, `type` und `instance` sind URI-Referenzen. Ohne den Transformer fehlte `traceId`, und `status` wäre auch als String beschrieben, weil die JSON-Optionen Zahlen aus Strings lesen dürfen.
-- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die sechs Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`, `ETag`) und den übrigen Antworten mit einer Adresse (`ETag`), **428** genau bei `PUT`, `PATCH` und `DELETE`, keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
+- `OpenApiDocumentTests` prüft das generierte Dokument als Ganzes: gültiges OpenAPI 3.1 (Reader von `Microsoft.OpenApi` ohne Fehler und Warnungen), genau die sechs Endpunkte, Beschreibungen, **500** und Problem Details bei jeder Fehlerantwort, Header nur bei **201** (`Location`, `ETag`), den übrigen Antworten mit einer Adresse (`ETag`) und den **200**-Antworten der beiden `GET` (`Age`), **428** genau bei `PUT`, `PATCH` und `DELETE`, keine unbekannten oder unbenutzten Schemas sowie die Schemas der Problem Details. Die Details je Endpunkt und die Einschränkungen der Adress-Schemas prüft `AddressesOpenApiTests`.
 - Fallstrick im XML-Kommentar-Generator von .NET 10: Er schreibt die Beschreibung jedes `<param>`, der kein Operation-Parameter ist, an den Request-Body, also auch die des `CancellationToken`. Der Body-Parameter wird deshalb als letzter dokumentiert.
 
 **Fehlerbehandlung**
@@ -256,7 +260,17 @@ Verwendet werden nur Pakete mit permissiven Lizenzen. Microsoft-Pakete sind nich
 - Ein leeres Patch-Dokument `[]` ist gültig und wirkt wie `PUT` mit den aktuellen Werten; `UpdatedAt` wird neu gesetzt.
 
 **Caching**
-- Serverseitiges Output Caching mit Invalidierung per Tag bei jeder Änderung. Der Cache liegt im Speicher der jeweiligen Instanz; bei mehreren Instanzen wäre ein verteilter Store (z. B. Redis) nötig.
+- Serverseitiges Output Caching von ASP.NET Core für `GET /api/addresses/{id}` und `GET /api/addresses`. Die beiden Policies registriert `AddAddressCaching()`. Die Actions verweisen per `[OutputCache(PolicyName = …)]` darauf, die Namen stehen in `AddressOutputCachePolicyNames`.
+- Tags (`AddressCacheTags`): Eine einzelne Adresse trägt `address-{id}`, jede Seite der Liste `addresses`. `AddressIdTagPolicy` schreibt die Id im Tag immer klein und mit Bindestrichen, auch wenn der Request sie groß oder in einem anderen GUID-Format enthält (`{id:guid}` akzeptiert z. B. auch `N` und `B`). Ohne gültige Id cacht die Policy nichts, denn einen Eintrag ohne Tag könnte keine Änderung entfernen.
+- Die Liste variiert nach allen Query-Parametern (`SetVaryByQuery("*")`). Jede Kombination aus Filter, Seite und Sortierung ist ein eigener Eintrag, ebenso unbekannte Parameter und andere Schreibweisen eines Werts (`city=Köln` und `city=köln`).
+- Invalidierung: Nach einer erfolgreichen Änderung entfernt der Controller die betroffenen Einträge mit `IOutputCacheStore.EvictByTagAsync`. `POST` (**201**) entfernt `addresses`, denn eine neue Adresse kann auf jeder Seite auftauchen; gecachte einzelne Adressen bleiben erhalten. `PUT`, `PATCH` (**200**) und `DELETE` (**204**) entfernen `address-{id}` und `addresses`. Fehlgeschlagene Änderungen (400, 404, 409, 412, 415, 428) lassen den Cache unverändert.
+- Beide Policies bauen auf der Standard-Policy von ASP.NET Core auf. Gecacht werden deshalb nur Antworten mit **200**, nie Fehlerantworten wie 400, 404 oder 500. Requests mit `Authorization`-Header und Antworten mit Cookies werden ebenfalls nicht gecacht.
+- Eine Antwort aus dem Cache trägt den Header `Age` mit den Sekunden seit dem Speichern (RFC 9111, Abschnitt 5.1). `AgeHeaderOperationTransformer` beschreibt ihn im OpenAPI-Dokument.
+- Bedingte Requests (`If-None-Match`, `If-Modified-Since`) beantwortet der Cache nie (`ConditionalRequestBypassPolicy`). Die Middleware würde sonst mit **304** antworten, aber nur, wenn gerade ein passender Eintrag existiert, während die Actions die Header nicht auswerten. So gibt es nie 304, und die Antwort hängt nicht vom Zustand des Caches ab. Die frische Antwort wird trotzdem gespeichert.
+- Die Ablaufzeit ist nur eine Absicherung: `Caching:Expiration` in `appsettings.json`, Standard `00:05:00`. Erlaubt sind Werte größer 0 und höchstens ein Tag; sonst startet die Anwendung nicht (`ValidateOnStart`). Sehr große Werte würden im Speicher-Cache überlaufen und bei jedem `GET` zu **500** führen. Die Ablaufzeit begrenzt, wie lange eine Antwort veraltet sein kann, wenn die Invalidierung nicht greift. Beispiel: Ein `GET` liest eine Adresse, ein `PUT` ändert sie und leert den Cache, danach speichert das `GET` den alten Stand.
+- Position in der Pipeline: `UseOutputCache()` steht hinter Exception-Handler und Status-Code-Pages und vor den Endpunkten. Authentifizierung und Autorisierung gehören davor, damit der Cache nie einen Request beantwortet, der abgelehnt würde.
+- Der Cache liegt im Speicher der jeweiligen Instanz (Standard-Store von ASP.NET Core). Bei mehreren Instanzen hätte jede ihren eigenen Cache, und eine Änderung über eine Instanz entfernte die Einträge der anderen nicht. Dann wäre ein verteilter Store nötig, z. B. Redis mit `Microsoft.AspNetCore.OutputCaching.StackExchangeRedis` (`AddStackExchangeRedisOutputCache`). Policies, Tags und Invalidierung bleiben dabei gleich.
+- `AddressOutputCacheTests` erkennt einen Treffer am Header `Age` und prüft Tags und Ablaufzeit über einen aufzeichnenden Store (`RecordingOutputCacheStore`). Jeder Test hat einen eigenen Host und damit einen leeren Cache.
 
 **Logging**
 - Strukturiertes Logging über `ILogger` mit Message-Templates. Die Log-Methoden erzeugt der Source-Generator `[LoggerMessage]`: Die Templates werden beim Build geprüft, und die Argumente werden nur verarbeitet, wenn das Level aktiv ist.
